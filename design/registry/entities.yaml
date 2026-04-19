@@ -37,7 +37,7 @@
 #   Each entry: name, status, source, referenced_by[], attributes{}, added, revised
 
 version: 1
-last_updated: ""
+last_updated: 2026-04-19
 
 # ─── ENTITIES ────────────────────────────────────────────────────────────────
 # Named game-world objects: enemies, NPCs, characters, factions, bosses.
@@ -106,7 +106,23 @@ items: []
 #   output_range[min, max], added
 # Optional: expression (the actual formula), notes
 
-formulas: []
+formulas:
+  - name: wave_loop_extrapolation
+    status: active
+    source: design/gdd/balance-data-layer.md
+    referenced_by:
+      - design/gdd/balance-data-layer.md
+    variables:
+      - w
+      - loop_after_wave
+      - loop_hp_scale
+      - loop_dmg_scale
+      - wave_entries
+    output_range: [0.0, infinity]
+    expression: "see Section D.1 of source GDD"
+    notes: "Returns effective_hp_mult and effective_dmg_mult for any wave w. Unbounded above; consumer clamps at < 0.01 floor. Consumers (future): Wave & Phase Manager, Enemy System, Combat Engine."
+    added: 2026-04-19
+    revised: ""
 
 # Example:
 #
@@ -139,7 +155,50 @@ formulas: []
 #
 # Required fields: name, status, source, referenced_by, value, unit, added
 
-constants: []
+constants:
+  - name: character_progression_curve_default_id
+    status: active
+    source: design/gdd/balance-data-layer.md
+    referenced_by:
+      - design/gdd/balance-data-layer.md
+    value: default
+    unit: StringName
+    notes: "Reserved ID of the single MVP CharacterProgressionCurve. Save/Load and Character Stats must reference this ID."
+    added: 2026-04-19
+    revised: ""
+
+  - name: loop_hp_scale_default
+    status: active
+    source: design/gdd/balance-data-layer.md
+    referenced_by:
+      - design/gdd/balance-data-layer.md
+    value: 1.15
+    unit: multiplier
+    notes: "Recommended default per-loop HP compounding factor for WaveScalingCurve. Safe range 1.05–1.20. See Section G.2 of source GDD."
+    added: 2026-04-19
+    revised: ""
+
+  - name: loop_dmg_scale_default
+    status: active
+    source: design/gdd/balance-data-layer.md
+    referenced_by:
+      - design/gdd/balance-data-layer.md
+    value: 1.15
+    unit: multiplier
+    notes: "Recommended default per-loop damage compounding factor for WaveScalingCurve (symmetric with hp by default)."
+    added: 2026-04-19
+    revised: ""
+
+  - name: balance_manifest_path
+    status: active
+    source: design/gdd/balance-data-layer.md
+    referenced_by:
+      - design/gdd/balance-data-layer.md
+    value: res://assets/data/BalanceManifest.tres
+    unit: resource_path
+    notes: "Fixed path to the single BalanceManifest. Not runtime-configurable."
+    added: 2026-04-19
+    revised: ""
 
 # Example:
 #

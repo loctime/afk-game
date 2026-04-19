@@ -18,7 +18,7 @@ AFK RPG es un idle RPG 2D side-view para mobile+desktop donde el personaje pelea
 | # | System Name | Category | Priority | Status | Design Doc | Depends On |
 |---|---|---|---|---|---|---|
 | 1 | Game State Manager | Core | MVP | Not Started | — | (none) |
-| 2 | Balance Data Layer (inferred) | Core | MVP | Not Started | — | (none) |
+| 2 | Balance Data Layer | Core | MVP | Designed | [balance-data-layer.md](balance-data-layer.md) | (none) |
 | 3 | Save/Load System (inferred) | Persistence | MVP | Not Started | — | Balance Data Layer |
 | 4 | Audio System | Audio | VS | Not Started | — | (none) |
 | 5 | Character Stats & Leveling | Progression | MVP | Not Started | — | Balance Data Layer, Save/Load |
@@ -180,10 +180,10 @@ Totales estimados:
 | Metric | Count |
 |---|---|
 | Total systems identified | 25 |
-| Design docs started | 0 |
+| Design docs started | 1 |
 | Design docs reviewed | 0 |
 | Design docs approved | 0 |
-| MVP systems designed | 0/21 |
+| MVP systems designed | 1/21 |
 | Vertical Slice systems designed | 0/4 |
 
 ---
