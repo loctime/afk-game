@@ -1,9 +1,10 @@
 # Balance Data Layer
 
-> **Status**: In Design
+> **Status**: In Design — Revised post-review (2026-04-19)
 > **Author**: User + game-designer + systems-designer
 > **Last Updated**: 2026-04-19
 > **Last Verified**: 2026-04-19
+> **Review history**: see `design/gdd/reviews/balance-data-layer-review-log.md`
 > **Implements Pillar**: Infrastructure — enables data-driven progression ("ver cómo tu personaje se vuelve más poderoso con el tiempo")
 
 ## Summary
@@ -51,7 +52,7 @@ The Balance Data Layer defines 5 Custom Resource types, each with `class_name` r
 | `base_hp` | `float` | yes | must be > 0 |
 | `base_damage` | `float` | yes | must be > 0 |
 | `behavior_tag` | `StringName` | yes | closed enum — see C.1.2 |
-| `size_category` | `StringName` | yes | closed enum (`&"small"`, `&"medium"`, `&"large"`) |
+| `size_category` | `StringName` | yes | closed enum (`&"small"`, `&"medium"`, `&"large"`, `&"huge"`) |
 | `sprite_path` | `String` | yes | path only; loading owned by Enemy System |
 | `drop_table_id` | `StringName` | yes | foreign key → DropTableDefinition (future), `&""` = no drops |
 
@@ -63,8 +64,8 @@ The Balance Data Layer defines 5 Custom Resource types, each with `class_name` r
 | `schema_version` | `int` | no | — |
 | `display_name` | `String` | yes | — |
 | `rarity` | `StringName` | yes | closed enum (`&"common"`, `&"rare"`, `&"epic"`, `&"legendary"`) |
-| `slot` | `StringName` | yes | closed enum (`&"weapon"`, `&"armor"`, `&"accessory"`) |
-| `stat_roll_ranges` | `Dictionary` | yes | `{ StringName: Vector2(min,max) }`; keys validated against closed stat set |
+| `slot` | `StringName` | yes | closed enum (13 values — see C.1.2) — one slot per concrete equipment position from concept §3.4 |
+| `stat_roll_ranges` | `Dictionary` | yes | `{ StringName: Vector2(min,max) }`; keys validated against closed base-stat set (see C.1.2) |
 | `icon_path` | `String` | yes | — |
 
 **SkillDefinition**
@@ -74,7 +75,7 @@ The Balance Data Layer defines 5 Custom Resource types, each with `class_name` r
 | `id` | `StringName` | no | — |
 | `schema_version` | `int` | no | — |
 | `display_name` | `String` | yes | — |
-| `skill_type` | `StringName` | yes | closed enum (`&"attack"`, `&"heal"`, `&"buff"`) |
+| `skill_type` | `StringName` | yes | closed enum (`&"attack"`, `&"heal"`, `&"buff"`, `&"debuff"`) |
 | `mana_cost` | `float` | yes | ≥ 0 |
 | `cooldown_sec` | `float` | yes | ≥ 0 |
 | `scaling_stat` | `StringName` | yes | closed enum matching Character stats |
@@ -88,10 +89,11 @@ The Balance Data Layer defines 5 Custom Resource types, each with `class_name` r
 |---|---|---|---|
 | `id` | `StringName` | no | — |
 | `schema_version` | `int` | no | — |
-| `wave_entries` | `Array[Dictionary]` | yes | dense; index = wave number (0-based). Each: `{ hp_mult: float, dmg_mult: float, spawn_count: int, enemy_ids: Array[StringName] }` |
+| `wave_entries` | `Array[Dictionary]` | yes | dense; index = wave number (0-based). Each entry REQUIRED keys: `{ hp_mult: float, dmg_mult: float, spawn_count: int, enemy_ids: Array[StringName], loot_tier: int }`. `loot_tier` is an integer index consumed by Drop & Loot Tables to bias drop weights / minimum rarity floor per wave; the default authoring value is `0`. Balance Data Layer does not interpret `loot_tier` — it only validates the field exists and is a non-negative integer. Drop & Loot Tables GDD owns the semantics. |
 | `loop_after_wave` | `int` | yes | -1 = no loop; otherwise index at which entries restart |
 | `loop_hp_scale` | `float` | yes | per-loop HP multiplier compounded |
 | `loop_dmg_scale` | `float` | yes | per-loop damage multiplier compounded |
+| `allow_loop_seam` | `bool` | yes | default `false`. When `false`, Rule 12 (loop-boundary difficulty drop) fails in release builds. Set to `true` to explicitly accept an intentional difficulty reset at the loop seam (debug still warns either way). This is the pillar-protection override for "ver personaje crecer" — see C.1.6 Rule 12. |
 
 **CharacterProgressionCurve** (single global instance for MVP; multi-class deferred)
 
@@ -102,6 +104,7 @@ The Balance Data Layer defines 5 Custom Resource types, each with `class_name` r
 | `xp_per_level` | `Array[float]` | yes | index 0 unused (= 0); length = `max_level + 1` |
 | `max_level` | `int` | yes | must equal `xp_per_level.size() - 1` |
 | `hp_per_vit` | `float` | yes | — |
+| `defense_per_vit` | `float` | yes | damage-reduction coefficient applied per VIT point; concept §7.2 ("VIT reduces damage received"). Combat Engine GDD owns the exact reduction formula. |
 | `mana_per_int` | `float` | yes | — |
 | `atk_per_str` | `float` | yes | — |
 | `speed_per_dex` | `float` | yes | — |
@@ -112,12 +115,12 @@ The Balance Data Layer defines 5 Custom Resource types, each with `class_name` r
 
 The following `StringName` fields are validated against code-defined constant sets. Adding a value is a one-line code edit, not a schema bump.
 
-- `EnemyDefinition.behavior_tag` ∈ `{ &"melee", &"ranged", &"magic" }` — MVP placeholder; Combat Engine GDD is the authority on the final tag set
-- `EnemyDefinition.size_category` ∈ `{ &"small", &"medium", &"large" }`
+- `EnemyDefinition.behavior_tag` ∈ `{ &"melee", &"ranged", &"aggressive", &"tank" }` — aligned to concept §6.1. Combat Engine GDD may extend this set; removals require a schema bump.
+- `EnemyDefinition.size_category` ∈ `{ &"small", &"medium", &"large", &"huge" }` — `&"huge"` reserved for boss-scale encounters (concept §6.4, "Enorme").
 - `ItemDefinition.rarity` ∈ `{ &"common", &"rare", &"epic", &"legendary" }`
-- `ItemDefinition.slot` ∈ `{ &"weapon", &"armor", &"accessory" }`
-- `ItemDefinition.stat_roll_ranges` keys ∈ `{ &"atk", &"def", &"str", &"dex", &"int", &"vit" }`
-- `SkillDefinition.skill_type` ∈ `{ &"attack", &"heal", &"buff" }`
+- `ItemDefinition.slot` ∈ `{ &"helmet", &"chest", &"pants", &"boots", &"gloves", &"shield", &"weapon", &"necklace", &"wings", &"bracelet", &"ring", &"artifact", &"pet" }` — one value per concrete equipment position from concept §3.4. Slots that appear twice in the UI layout (e.g. two Ring slots) share the same enum value; Inventory & Equipment GDD owns the per-slot-count logic.
+- `ItemDefinition.stat_roll_ranges` keys ∈ `{ &"str", &"dex", &"int", &"vit" }` — **base stats only**. ATK and DEF are derived values computed by Character Stats from these four inputs (see concept §7.2); items never roll derived stats directly. This keeps the item comparison UI unambiguous: every roll is in the same namespace.
+- `SkillDefinition.skill_type` ∈ `{ &"attack", &"heal", &"buff", &"debuff" }` — matches concept §4.3. Priority-selection AI in Combat Engine classifies skills by this field.
 - `SkillDefinition.scaling_stat` ∈ `{ &"str", &"dex", &"int", &"vit" }`
 
 `SkillDefinition.effect_tags` is intentionally **open** — new tags added by Combat Engine need no Balance Data Layer change.
@@ -153,7 +156,36 @@ func has_enemy(id: StringName) -> bool   # and equivalents per family
 # Readiness
 var is_ready: bool = false
 signal database_ready
-signal balance_database_reloaded   # fired after a hot reload (see C.1.8)
+signal balance_database_reloaded(success: bool)   # fired after a hot reload (see C.1.8); success=false if reload's validator reported errors and old templates were retained
+signal balance_load_failed                         # fired only in release when boot validation failed
+
+# --- Test injection seams (see AC-018/019/031/032) ---
+# Two fields default to the production value but can be swapped in tests
+# so automated tests can exercise both debug and release behavior in a single run.
+var _is_debug: bool = OS.is_debug_build()
+var _error_reporter: Callable = func(msg: String) -> void: push_error(msg)
+
+# NO _assert_handler Callable. `assert` is a compile-time directive in GDScript;
+# wrapping it in a Callable breaks AC-019's "collect all errors, then terminal
+# assert" contract (a Callable halts on first invocation, preventing the
+# multi-error collection the validator requires). The correct pattern is:
+#   1. Validator accumulates failures into _validation_errors: Array[String]
+#   2. After all rules run, if _is_debug and _validation_errors.size() > 0:
+#        assert(false, "BalanceDatabase boot validation failed:\n" +
+#                      "\n".join(_validation_errors))
+# Tests exercise release behavior by setting _is_debug = false; the assert line
+# is never reached, satisfying AC-018. Tests exercise debug behavior by letting
+# `assert` fire (GdUnit4 captures assert failures as test failures).
+```
+
+**Autoload ordering — hard constraint (not an edge case).** `BalanceDatabase` MUST be registered as the **first autoload** in Project Settings → Autoload. Any autoload listed before it cannot safely call getters or `await database_ready` — the signal may already have fired (deadlock) or not yet fired (getter returns `null`). A peer autoload listed AFTER `BalanceDatabase` is safe because Godot runs autoload `_ready()` calls sequentially and synchronously; by the time the peer's `_ready()` runs, `is_ready == true`. The guarded-await idiom below handles the narrow case of deferred signals that may fire after `database_ready` emission.
+
+**Guarded await pattern for consumers.** Any consumer that may run before `BalanceDatabase._ready()` completes (peer autoloads, deferred signals) MUST use this idiom — a bare `await BalanceDatabase.database_ready` will block forever if the signal already fired:
+
+```gdscript
+if not BalanceDatabase.is_ready:
+    await BalanceDatabase.database_ready
+# safe to call getters from here
 ```
 
 **Miss contract** (consistent across all getters):
@@ -182,13 +214,18 @@ Rules checked:
 2. Every loaded Resource's `schema_version` equals its family's `CURRENT_SCHEMA` constant.
 3. No duplicate `id` within a family (cross-family ID collisions are allowed).
 4. All required fields are non-null; `id` is non-empty (`&""` is invalid).
-5. Numeric invariants: `base_hp > 0`, `base_damage > 0`, `mana_cost ≥ 0`, `cooldown_sec ≥ 0`, `scaling_coefficient` finite.
+5. Numeric invariants: `base_hp > 0`, `base_damage > 0`, `mana_cost ≥ 0`, `cooldown_sec ≥ 0`, `scaling_coefficient` finite, `hp_per_vit ≥ 0`, **`defense_per_vit > 0`** (strict — `= 0` silently removes VIT's damage-reduction role per concept §7.2; pillar-protection invariant), `mana_per_int ≥ 0`, `atk_per_str ≥ 0`, `speed_per_dex ≥ 0`, **`WaveScalingCurve.loop_hp_scale > 0`, `WaveScalingCurve.loop_dmg_scale > 0`**, every `wave_entries[i].hp_mult > 0` and `wave_entries[i].dmg_mult > 0`, every `wave_entries[i].spawn_count ≥ 0`, every `wave_entries[i].loot_tier ≥ 0`. No `loop_*_scale` upper bound is enforced, but values `>= 2.0` emit a tuning warning (see G.2).
 6. Closed-enum fields (see C.1.2) contain only allowed values.
-7. `WaveScalingCurve.wave_entries` is dense (no gaps); `loop_after_wave ∈ [-1, wave_entries.size())`.
+7. `WaveScalingCurve.wave_entries` is dense (no gaps); `loop_after_wave ∈ [-1, wave_entries.size())`. **Every entry Dictionary must contain all required keys with correct types**: `hp_mult: float`, `dmg_mult: float`, `spawn_count: int`, `enemy_ids: Array[StringName]`, `loot_tier: int`. Missing or mistyped keys fail validation with the offending wave index and key named. Extra keys are allowed (ignored with a warning) to support forward-compat authoring.
 8. Every `enemy_ids` entry in every `WaveScalingCurve` resolves to a known EnemyDefinition.
-9. `CharacterProgressionCurve.max_level == xp_per_level.size() - 1` and `xp_per_level[0] == 0`.
-10. `ItemDefinition.stat_roll_ranges` keys are all in the closed stat set.
+9. `CharacterProgressionCurve.max_level == xp_per_level.size() - 1`, `xp_per_level[0] == 0`, every `xp_per_level[i]` for `i >= 1` is finite and strictly greater than `xp_per_level[i-1]` (monotonic). No gameplay-sanity bound is enforced; Character Stats & Leveling GDD owns the curve-shape safe range.
+10. `ItemDefinition.stat_roll_ranges` keys are all in the closed base-stat set (see C.1.2); every value `Vector2(min, max)` satisfies `min <= max` and both components are finite.
 11. `BalanceManifest` itself loads and is non-empty.
+12. **Loop-boundary invariant (severity depends on build + override)**: if `loop_after_wave >= 0`, the difficulty seam `wave_entries[0].hp_mult * loop_hp_scale` SHOULD be `>= wave_entries[loop_after_wave].hp_mult`, AND the same relation must hold for `dmg_mult` (`wave_entries[0].dmg_mult * loop_dmg_scale >= wave_entries[loop_after_wave].dmg_mult`). A violation in either field means the player experiences a difficulty drop at the wave transitioning from pre-loop to first loop — a pillar-level regression for "ver personaje crecer" (in an AFK game the player cannot self-detect this).
+    - **Debug builds**: warning only, regardless of `allow_loop_seam`. The offending curve id, the violating field (`hp_mult` / `dmg_mult` / both), and the computed drop percentage are reported. Boot continues.
+    - **Release builds with `allow_loop_seam == false` (default)**: **validation fails**. The curve is dropped from `_templates`; `balance_load_failed` is emitted. The pillar is protected by default.
+    - **Release builds with `allow_loop_seam == true`**: warning only. The curve loads. Use only when a designer has an explicit reason to accept the seam.
+    - This rule only checks the seam at `wave_entries[0]` vs `wave_entries[loop_after_wave]` — intra-loop cliffs (entry N where `N > 0` is drastically higher than entry 0 scaled) are out of scope for this layer; they belong to Wave & Phase Manager GDD as curve-shape guidance. AC coverage is in H.7b (AC-051a/b/c/d).
 
 **Failure mode:**
 
@@ -197,9 +234,11 @@ Rules checked:
 
 #### C.1.7 Schema evolution
 
-Each Resource class declares `const CURRENT_SCHEMA: int = N`. A file whose `schema_version` is less than this constant fails validation rule 2 — **no silent runtime migration.**
+Each Resource class declares its **own** `const CURRENT_SCHEMA: int = N` — schemas evolve per-family independently. A file whose `schema_version` is less than its class's constant fails validation rule 2 — **no silent runtime migration.** The migration tool (below) must know which family each Resource belongs to and compare against the right constant.
 
-Migration is a designer-tooling step: `tools/migrate_balance.gd` (editor script) reads old Resources, applies field transforms, writes new ones with the bumped version. Run manually before committing schema-breaking changes. Purely additive fields get a default in `_init()` and do not require a version bump.
+Migration is a designer-tooling step: `tools/migrate_balance.gd` (editor script) reads old Resources, applies field transforms, writes new ones with the bumped version. Run manually before committing schema-breaking changes.
+
+**Additive-field rule:** Purely additive fields (no existing consumer reads, no changed semantics) do not require a schema bump — but their default MUST be declared inline on the `@export` line (`@export var new_field: float = 1.0`). Godot's Resource deserializer fills missing fields from the `@export` default at load time; a default set only in `_init()` does NOT apply when an older `.tres` is loaded. (Cross-reference E.5 — this is the canonical statement.)
 
 #### C.1.8 Hot reload (dev builds only)
 
@@ -209,13 +248,23 @@ Concrete sequence:
 
 ```gdscript
 func hot_reload() -> void:
+    # Load into a fresh dictionary using CACHE_MODE_IGNORE. The returned Resource
+    # MUST be used directly — discarding it and re-calling load() later would hit
+    # the stale cached entry (CACHE_MODE_IGNORE bypasses the cache only for the
+    # returned reference; it does NOT evict the cache entry). See OQ-1 for the
+    # 4.6 constant-name verification gate.
+    var new_templates: Dictionary = {}
     for path in _manifest.paths:
-        ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)
-    _templates.clear()
-    _load_from_manifest()
-    _validator.validate_all(_templates)
-    emit_signal("balance_database_reloaded")
+        var res: Resource = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)
+        _add_to_templates(new_templates, res)
+    var ok: bool = _validator.validate_all(new_templates)
+    if ok:
+        _templates = new_templates  # atomic replace on success
+    # else: retain existing _templates (state machine RELOADING → READY with errors)
+    emit_signal("balance_database_reloaded", ok)
 ```
+
+The `success: bool` argument on `emit_signal` is REQUIRED — it is declared on the signal signature in C.1.4 (`signal balance_database_reloaded(success: bool)`); Godot 4.6 enforces typed signal arity at runtime.
 
 Already-duplicated instances in the active scene are **intentionally stale** after reload (they are independent copies — `duplicate(true)` breaks the reference chain). Consumers that want to apply reloaded values to live instances listen on `balance_database_reloaded` and decide per-system whether to re-fetch — that is a gameplay concern, outside this GDD.
 
@@ -333,7 +382,7 @@ Else (w > loop_after_wave, looping active):
 | authored length | `N` | int | 1 .. ∞ (validator requires ≥ 1) | `wave_entries.size()` |
 | loop anchor | `loop_after_wave` | int | -1, or 0 .. N-1 | -1 disables looping; otherwise the last pre-loop wave index |
 | loop length | `loop_span` | int | 1 .. N | Derived: `loop_after_wave + 1` |
-| loop cycle | `loop_count(w)` | int | 0 .. unbounded | How many complete loops past the first pass |
+| loop cycle | `loop_count(w)` | int | 0 .. unbounded | 1-indexed loop number once looping is active (wave immediately past `loop_after_wave` has `loop_count == 1`). For waves `w <= loop_after_wave` (including the no-loop case `-1`), `loop_count == 0` and no `loop_*_scale` multiplier is applied. |
 | entry index | `e` | int | 0 .. (loop_span - 1) | Which `wave_entries` entry to read |
 | per-entry HP mult | `wave_entries[e].hp_mult` | float | > 0.0 (validator-enforced) | Authored base HP multiplier |
 | per-entry damage mult | `wave_entries[e].dmg_mult` | float | > 0.0 | Authored base damage multiplier |
@@ -343,6 +392,26 @@ Else (w > loop_after_wave, looping active):
 | output damage mult | `effective_dmg_mult(w)` | float | > 0.0, unbounded above | Multiplier consumed by Combat Engine for enemy damage |
 
 **Output Range:** Both outputs are strictly positive floats, unbounded above. This formula does **not** clamp — consumer systems apply their own caps. Entries past index `loop_after_wave` in the array are ignored when looping is active (validator warns at boot but doesn't fail).
+
+**Mandatory implementation guards** (not optional — the formula must self-defend even when the validator is bypassed, e.g., by tool scripts or tests constructing curves in memory):
+
+```gdscript
+# At formula entry — reject degenerate inputs the validator would have caught:
+if w < 0:
+    push_error("effective_*_mult called with w=%d (< 0); returning wave_entries[0]" % w)
+    return { hp_mult = wave_entries[0].hp_mult, dmg_mult = wave_entries[0].dmg_mult, loop_count = 0 }
+assert(loop_hp_scale > 0.0, "loop_hp_scale must be > 0 (got %f)" % loop_hp_scale)
+assert(loop_dmg_scale > 0.0, "loop_dmg_scale must be > 0 (got %f)" % loop_dmg_scale)
+
+# At formula output — reject INF / NaN (large loop_*_scale compounds beyond
+# DBL_MAX around wave ~1,550 for scale=100, ~10,240 for scale=2.0).
+# Passing INF downstream becomes NaN in Combat Engine's damage math (INF * 0 = NaN),
+# which propagates silently and breaks HP display + hit detection.
+assert(is_finite(effective_hp_mult), "effective_hp_mult overflowed at w=%d" % w)
+assert(is_finite(effective_dmg_mult), "effective_dmg_mult overflowed at w=%d" % w)
+```
+
+The negative-`w` fallback returning `wave_entries[0]` (not `wave_entries[-1]`, which GDScript would wrap to the last element — silent semantic error) is the safe default covered by AC-029.
 
 **Example:** `wave_entries.size() = 10`, `loop_after_wave = 9`, `loop_hp_scale = 1.15`, `wave_entries[7].hp_mult = 2.0`. For `w = 27`:
 
@@ -639,17 +708,17 @@ Each criterion maps to one of the 11 boot validator rules from Section C.1.6.
 - **AC-015 (Rule 9 — monotonic)** GIVEN a `CharacterProgressionCurve` where `xp_per_level[5] < xp_per_level[4]` WHEN validation runs THEN validation fails naming the non-monotonic indices and values.
   _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
 
-- **AC-016 (Rule 10)** GIVEN an `ItemDefinition` with `stat_roll_ranges[&"atk"] = Vector2(100.0, 50.0)` (min > max) WHEN validation runs THEN validation fails naming the item id, the stat key, and the offending Vector2.
+- **AC-016 (Rule 10)** GIVEN an `ItemDefinition` with `stat_roll_ranges[&"str"] = Vector2(100.0, 50.0)` (valid key, `min > max`) WHEN validation runs THEN validation fails naming the item id, the stat key, and the offending Vector2. Key must be from the closed base-stat set (see C.1.2) so Rule 6 is not also triggered — this AC isolates the `min <= max` check.
   _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
 
 - **AC-017 (Rule 11)** GIVEN an empty `BalanceManifest` (zero paths) WHEN validation runs THEN validation fails with a non-empty-manifest error; `is_ready` stays `false`.
   _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
 
-- **AC-018 (Release failure path)** GIVEN validation fails in a release build WHEN errors are collected THEN `balance_load_failed` is emitted, offending Resources are absent from `_templates`, and `is_ready` remains `false`; no assert fires.
-  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd` — build-flag fixture._
+- **AC-018 (Release failure path)** GIVEN validation fails in a release build WHEN errors are collected THEN `balance_load_failed` is emitted, offending Resources are absent from `_templates`, and `is_ready` remains `false`; no assert fires (the `if _is_debug:` branch is skipped when `_is_debug = false`).
+  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd` — test injects `_is_debug = false` on the BalanceDatabase under test before triggering validation failure, then asserts `balance_load_failed` signal emitted exactly once and `_validation_errors.size() >= 1`. No seam to stub assertion behavior — GdUnit4 would catch a real `assert(false)` as a test failure, so the absence of the test failing proves the assert branch was not entered._
 
-- **AC-019 (All errors reported)** GIVEN a manifest with three separate validator violations WHEN validation runs in debug THEN all three errors are pushed before the single final assert fires (no fail-fast at first error).
-  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
+- **AC-019 (All errors reported)** GIVEN a manifest with three separate validator violations WHEN validation runs in debug THEN all three errors are collected into `_validation_errors` before any terminal assert fires (no fail-fast at first error).
+  _Unit test: injects `_error_reporter` as a log-capturing stub AND injects `_is_debug = false` to prevent the terminal assert from halting the test; runs validation; asserts `_validation_errors.size() == 3` and that the reporter was called three times. A companion test with `_is_debug = true` asserts that after the three-error collection completes, a single assert fires at the terminal step (verified by wrapping the `validate_all` call and catching the GdUnit4 assert signal). `tests/unit/balance_data_layer/test_validator_rules.gd`_
 
 ### H.3 Wave-loop formula correctness
 
@@ -690,20 +759,20 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 - **AC-030 (getter hit, typed return)** GIVEN a loaded `EnemyDefinition` with `id = &"slime_common"` WHEN `BalanceDatabase.get_enemy(&"slime_common")` is called THEN the return type is `EnemyDefinition` and `result.id == &"slime_common"`.
   _Unit test: `tests/unit/balance_data_layer/test_getter_api.gd`_
 
-- **AC-031 (miss contract — debug)** GIVEN `is_ready == true` in a debug build WHEN `get_enemy(&"nonexistent_id")` is called THEN an assert fires.
-  _Unit test: `tests/unit/balance_data_layer/test_getter_api.gd` — debug-flag fixture._
+- **AC-031 (miss contract — debug)** GIVEN `is_ready == true` in a debug build WHEN `get_enemy(&"nonexistent_id")` is called THEN `null` is returned, `_error_reporter` is invoked with a non-empty message, and an `assert(false, ...)` fires under the `if _is_debug:` branch (GdUnit4 reports the assert as a test failure, which the test catches and inverts).
+  _Unit test: injects `_is_debug = true` and a stubbed `_error_reporter` log. `tests/unit/balance_data_layer/test_getter_api.gd`._
 
-- **AC-032 (miss contract — release)** GIVEN `is_ready == true` in a release build WHEN `get_enemy(&"nonexistent_id")` is called THEN `null` is returned, `push_error` is called, and no assert fires.
-  _Unit test: `tests/unit/balance_data_layer/test_getter_api.gd` — release-flag fixture._
+- **AC-032 (miss contract — release)** GIVEN `is_ready == true` in a release build WHEN `get_enemy(&"nonexistent_id")` is called THEN `null` is returned, `_error_reporter` is invoked with a non-empty message, and no assert fires (the `if _is_debug:` branch is skipped).
+  _Unit test: injects `_is_debug = false` and a stubbed `_error_reporter`. Asserts the reporter was called once and the test completes without any GdUnit4 assertion failure (proving the assert branch was not entered). `tests/unit/balance_data_layer/test_getter_api.gd`._
 
-- **AC-033 (no direct ResourceLoader calls)** GIVEN any consumer file in `src/` WHEN the file is static-analyzed THEN no call to `ResourceLoader.load()` on a path under `assets/data/` exists. (Forbidden pattern from C.1.4.)
-  _Automated: grep-based CI lint check — no dedicated GdUnit4 file required; violation blocks CI._
+- **AC-033 (no direct ResourceLoader calls)** GIVEN any consumer file under `src/` WHEN the CI lint rule runs THEN no line matches `ResourceLoader\.load\s*\(\s*["'][^"']*assets/data/` in any `.gd` file outside `src/core/balance/`. Violation blocks CI.
+  _Automated: `tools/ci/lint_forbidden_patterns.sh` (bash; uses `grep -rEn` on `src/`). CI step name: `balance-data-access-lint`. Exit code 1 on any match. **This is a BLOCKING gate** (C.1.4 declares the pattern forbidden) — promoted from ADVISORY to match C.1.4 language._
 
 - **AC-034 (duplicate-once, not per-frame)** GIVEN an `EnemyDefinition` template obtained from `get_enemy` WHEN `duplicate(true)` is called once and the resulting instance's `base_hp` is modified THEN a subsequent `get_enemy` call for the same id returns the original unmodified value.
   _Unit test: `tests/unit/balance_data_layer/test_getter_api.gd`_
 
-- **AC-035 (WaveScalingCurve / CharacterProgressionCurve never duplicated)** GIVEN `get_wave_curve` or `get_progression` returns a template WHEN that template is used in Wave & Phase Manager or Character Stats THEN no `duplicate()` call appears on the returned object in those consumer files.
-  _Automated: code-review checklist item + optional grep CI lint; documented in consumer contract._
+- **AC-035 (WaveScalingCurve / CharacterProgressionCurve never duplicated)** GIVEN `get_wave_curve` or `get_progression` returns a template WHEN the CI lint rule runs THEN no line matches `\.(duplicate|duplicate_deep)\s*\(` applied to a variable typed `WaveScalingCurve` or `CharacterProgressionCurve` in any consumer `.gd` file.
+  _Automated: `tools/ci/lint_forbidden_patterns.sh` extends AC-033's script with a second grep rule scoped to typed variables. Violation blocks CI._
 
 ### H.5 Hot reload
 
@@ -750,11 +819,37 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 - **AC-048 (getter call cost)** GIVEN the database is READY WHEN any typed getter is called 10,000 times in a tight loop THEN total elapsed time is under 10 ms on desktop (O(1) Dictionary lookup requirement).
   _Unit benchmark: `tests/performance/test_balance_boot_time.gd`_
 
-- **AC-049 (duplicate(true) not per-frame)** GIVEN 100 concurrent enemy instances in a wave WHEN the wave runs for 60 frames THEN `duplicate(true)` is called exactly 100 times total (once per spawn, never again). Frame profiler shows zero `duplicate` calls after the spawn batch.
-  _Integration test / profiler assertion: `tests/integration/balance_data_layer/test_duplicate_budget.gd` — instrument EnemySystem with a call counter._
+- **AC-049 (deferred — EnemySystem dependency)** The duplicate-once-per-spawn budget is a consumer-side contract owned by EnemySystem. Moved to the Enemy System GDD when authored. This GDD retains only a statement of the contract in C.1.5; the test lives downstream.
+  _No test in this GDD. Placeholder retained so AC numbering stays stable across revisions._
 
-- **AC-050 (memory ceiling)** GIVEN the full MVP manifest is loaded WHEN `Performance.get_monitor(Performance.MEMORY_STATIC)` is sampled after `database_ready` fires THEN the delta from baseline is under 32 MB on desktop; under 20 MB on mobile (all five Resource families, no duplicated instances counted).
-  _Manual smoke check on target Android device during milestone QA. Document in `production/qa/evidence/`._
+- **AC-050 (memory ceiling)** GIVEN a baseline sample of `Performance.MEMORY_STATIC` taken immediately before `BalanceDatabase._ready()` is invoked, AND the full MVP manifest is then loaded, WHEN `Performance.MEMORY_STATIC` is sampled a second time after `database_ready` fires THEN `(post - baseline)` is under 32 MB on desktop; under 20 MB on the reference Android device (documented in `production/qa/evidence/balance-memory-smoke.md`).
+  _Manual smoke check methodology: baseline captured via an injected `pre_ready_hook` Callable; post capture in the `database_ready` handler. Reference Android device model recorded in the evidence file per milestone. Desktop threshold also enforced by CI benchmark (`tests/performance/test_balance_boot_time.gd`)._
+
+### H.7b Coverage additions from review (2026-04-19)
+
+- **AC-051a (Rule 12 — hp seam, debug warning)** GIVEN a `WaveScalingCurve` with `allow_loop_seam == false` AND `wave_entries[0].hp_mult * loop_hp_scale < wave_entries[loop_after_wave].hp_mult` AND `_is_debug == true` WHEN validation runs THEN a warning is emitted naming the curve id, the field `hp_mult`, and the computed drop percentage; `is_ready` still reaches `true` (warning, not failure in debug).
+  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
+
+- **AC-051b (Rule 12 — dmg seam, debug warning)** GIVEN a `WaveScalingCurve` with `allow_loop_seam == false` AND `wave_entries[0].dmg_mult * loop_dmg_scale < wave_entries[loop_after_wave].dmg_mult` AND `_is_debug == true` WHEN validation runs THEN a warning is emitted naming the curve id, the field `dmg_mult`, and the computed drop percentage; `is_ready` still reaches `true`. Test uses a fixture that violates the dmg seam ONLY (hp seam valid) so the test isolates the dmg branch from the hp branch.
+  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
+
+- **AC-051c (Rule 12 — release fail without override)** GIVEN a `WaveScalingCurve` with `allow_loop_seam == false` AND either hp seam OR dmg seam is violated AND `_is_debug == false` WHEN validation runs THEN validation **fails** for that curve: it is dropped from `_templates`, `balance_load_failed` is emitted, and `is_ready` remains `false`. This AC enforces the pillar-protection contract — no silent 42% drops ship to players.
+  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd` — two test cases, one per violating field._
+
+- **AC-051d (Rule 12 — release pass with override)** GIVEN a `WaveScalingCurve` with `allow_loop_seam == true` AND a seam violation on either field AND `_is_debug == false` WHEN validation runs THEN the curve loads successfully (no failure), a one-line info message names the curve id and acknowledges the accepted seam, and `is_ready` reaches `true`. This is the designer escape hatch for intentional difficulty resets.
+  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
+
+- **AC-052 (consumer per-frame getter ban)** GIVEN any `.gd` file under `src/` WHEN the CI lint rule runs THEN no call to `BalanceDatabase.get_enemy|get_item|get_skill|get_wave_curve|get_progression` appears inside a `_process`, `_physics_process`, or `_input` function body.
+  _Automated: `tools/ci/lint_forbidden_patterns.sh` extended with an AST-free grep heuristic (function-scope window scan). Violation blocks CI._
+
+- **AC-053 (one-time clamp warning)** GIVEN `loop_after_wave = -1` WHEN the formula is queried for `w = 50` twice in the same session THEN `push_warning` is called exactly once across both calls (tracked per-curve-id via a session-scoped set).
+  _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd`_
+
+- **AC-054 (unrecognized-class skip)** GIVEN a manifest that includes a path resolving to a `Resource` not belonging to any of the five families WHEN validation runs THEN a warning is logged naming the path and actual class, the path is skipped (no entry in any `_templates` dictionary), remaining Resources load normally, and `is_ready` reaches `true`.
+  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
+
+- **AC-055 (migration tool `schema_version == 0` handling)** GIVEN a `.tres` whose stored `schema_version == 0` (pre-versioning) WHEN `tools/migrate_balance.gd` runs against it THEN the output `.tres` has `schema_version = CURRENT_SCHEMA` for its family, every field has a value consistent with that family's current schema (defaults applied where fields are missing), and the tool does not silently leave `schema_version = 0` or fail with an unhandled exception.
+  _Unit test: `tests/unit/balance_data_layer/test_migrate_balance.gd`_
 
 ### H.8 Test evidence required
 
@@ -765,13 +860,13 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 | H.2 Validator rule enforcement | Logic (blocking) | Unit tests — one test function per rule (11 rules + failure modes) | `tests/unit/balance_data_layer/test_validator_rules.gd` |
 | H.3 Wave-loop formula | Logic (blocking) | Unit tests — all boundary and case inputs listed in H.3 | `tests/unit/balance_data_layer/test_wave_loop_formula.gd` |
 | H.4 API behavior | Logic (blocking) | Unit tests — getter hit/miss, immutability, typed return | `tests/unit/balance_data_layer/test_getter_api.gd` |
-| H.4 No direct ResourceLoader | Config/Data | CI grep lint — no `ResourceLoader.load()` on `assets/data/` paths in `src/` | CI rule; no GdUnit4 file |
+| H.4 No direct ResourceLoader (AC-033, AC-035) | Logic (blocking) | CI grep lint — no `ResourceLoader.load()` on `assets/data/` paths in `src/`; no `.duplicate*()` on typed `WaveScalingCurve`/`CharacterProgressionCurve` variables | `tools/ci/lint_forbidden_patterns.sh` |
 | H.5 Hot reload | Integration | Integration test — reload signal, old template retention, mid-wave stale instances | `tests/integration/balance_data_layer/test_hot_reload_integration.gd` |
 | H.5 Hot reload — release guard | Visual/UI (advisory) | Manual smoke check on export build — press F5, confirm no reload | `production/qa/evidence/hot-reload-release-smoke.md` |
 | H.6 Edge cases | Logic (blocking) | Unit tests covering all five E-section categories | `tests/unit/balance_data_layer/test_edge_cases.gd` |
 | H.7 Boot time / getter cost | Performance | Automated benchmark with asserted threshold | `tests/performance/test_balance_boot_time.gd` |
 | H.7 Memory ceiling | Performance | Manual smoke check on target Android hardware | `production/qa/evidence/balance-memory-smoke.md` |
-| H.7 duplicate budget | Integration | Integration test with call counter instrumentation | `tests/integration/balance_data_layer/test_duplicate_budget.gd` |
+| ~~H.7 duplicate budget~~ | — | AC-049 moved to Enemy System GDD per revision 2026-04-19; no test in this suite | see Enemy System GDD when authored |
 
 **Minimum coverage gate**: Formula and validator code paths must reach 70% line coverage (GdUnit4 coverage report). CI blocks merge if coverage drops below the threshold.
 
@@ -781,7 +876,14 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 godot --headless --import && godot --headless -s addons/gdUnit4/bin/GdUnitCmdTool.gd -a tests/
 ```
 
-**Blocking gates**: H.2 (validator logic), H.3 (formula), H.4 (API), and H.6 (edge cases) — all Logic/Integration story types per the test evidence matrix. H.5 release guard, H.7 memory ceiling, and the no-direct-ResourceLoader lint are advisory or CI-enforced.
+**Blocking gates** (CI must fail on violation):
+- **H.2** validator logic (AC-005 through AC-019, AC-051a/b/c/d, AC-054)
+- **H.3** wave-loop formula correctness (AC-020 through AC-029, AC-053)
+- **H.4** API behavior AND lint gates — including AC-033 (no direct `ResourceLoader.load` on data paths) and AC-035 (no `.duplicate*()` on read-only curve types). Both lint rules are **BLOCKING** — they are CI-enforced via `tools/ci/lint_forbidden_patterns.sh`, not GdUnit4, but violations block merge identically to failed unit tests.
+- **H.6** edge cases (AC-041 through AC-046)
+- **H.7b** per-frame-getter lint (AC-052) — also BLOCKING via the same lint script.
+
+Advisory gates (warnings, not merge-blocking): H.5 release guard (AC-039 — manual smoke check), H.7 memory ceiling (AC-050 — manual smoke check on target hardware).
 
 ## Open Questions
 

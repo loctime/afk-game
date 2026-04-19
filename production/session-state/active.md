@@ -1,14 +1,31 @@
 # Session State — Active
 
-**Last Updated:** 2026-04-19
-**Current Task:** Balance Data Layer GDD — COMPLETE (Designed, pending review)
-**Status:** All 8 required sections + UI Requirements + Cross-References + Open Questions written. Registry seeded. Systems index updated.
-**Active GDD:** design/gdd/balance-data-layer.md (844 lines)
-**Sections complete:** All required (A–H) + optional stubs
+**Last Updated:** 2026-04-19 (pass 2 complete)
+**Current Task:** Balance Data Layer GDD — pass-2 fresh-session review completed; NEEDS REVISION verdict with 8 blockers applied in-session
+**Status:** Pass 1 (authoring+review): 5 blockers fixed. Pass 2 (fresh-session re-review, this session): 8 new blockers surfaced, all 8 applied. Systems index marked `In Review (revised 2026-04-19 pass 2)`. Review log updated with pass-2 entry.
+**Active GDD:** design/gdd/balance-data-layer.md (pass 2 revisions applied)
+**Sections complete:** All required (Overview, Player Fantasy, Detailed Design, Formulas, Edge Cases, Dependencies, Tuning Knobs, Acceptance Criteria) + H.7b split
 
 ## Next Action
 
-Run `/design-review design/gdd/balance-data-layer.md` in a **fresh Claude Code session** to validate this GDD independently. Do NOT run in this session — the reviewer must not inherit the authoring context.
+`/clear` then run `/design-review design/gdd/balance-data-layer.md` in a **fresh Claude Code session** (pass 3) to validate the pass-2 revisions. Reviewer must not inherit this session's revision context. Expected verdict: APPROVED barring new issues.
+
+## Pass-2 blocker fixes (8 applied, all blockers resolved in-session)
+
+1. **Hot-reload sequence (C.1.8)** — `ResourceLoader.load(..., CACHE_MODE_IGNORE)` result used directly; atomic `_templates = new_templates` on success; `emit_signal("balance_database_reloaded", ok)` with typed `success` arg.
+2. **`_assert_handler` Callable seam removed (C.1.4)** — replaced with `_validation_errors` accumulator + terminal `if _is_debug: assert(false, joined)`. AC-018/019/031/032 rewritten.
+3. **Rule 12 severity + AC-051 split (C.1.1, C.1.6, H.7b)** — added `allow_loop_seam: bool = false` on WaveScalingCurve; release fails without override; AC-051 split into 051a (hp warn), 051b (dmg warn), 051c (release fail), 051d (release pass with override).
+4. **Formula-level guards (D.1)** — `w < 0` fallback; `assert(loop_*_scale > 0)` at entry; `assert(is_finite(result))` at output.
+5. **`defense_per_vit > 0` strict (C.1.6 Rule 5)** — pillar-protection invariant.
+6. **Autoload-order hard constraint (C.1.4)** — BalanceDatabase MUST be autoload #1.
+7. **AC-033/AC-035 unified BLOCKING (H.8)** — table row + summary paragraph aligned; `tools/ci/lint_forbidden_patterns.sh` is the blocking enforcement point.
+8. **AC-016 key fix + H.8 stale row removed** — AC-016 uses valid key `&"str"`; duplicate-budget row struck through (AC-049 in Enemy System GDD).
+
+## Pass-2 deferred items
+
+- 12 RECOMMENDED items deferred to pass 3 or later GDDs (see review log pass-2 entry for full list).
+- 4 NICE-TO-HAVE deferred.
+- Ceremony trim-pass deferred until 2+ consumer GDDs exist.
 
 ## Progress Checklist
 
@@ -17,7 +34,9 @@ Run `/design-review design/gdd/balance-data-layer.md` in a **fresh Claude Code s
 - [x] `/setup-engine` run — Godot 4.6 + GDScript + Mobile/Desktop + GdUnit4 configured
 - [x] `/map-systems` run — 25 systems enumerated
 - [x] **First MVP GDD authored**: `design/gdd/balance-data-layer.md`
-- [ ] `/design-review design/gdd/balance-data-layer.md` in fresh session
+- [x] `/design-review` pass 1 (authoring session) — 5 blockers applied
+- [x] `/design-review` pass 2 (this fresh session) — 8 blockers applied
+- [ ] `/design-review` pass 3 (next fresh session) — validate pass-2 fixes, expected APPROVED
 - [ ] Next MVP GDD: Game State Manager (Foundation layer, next in design order)
 - [ ] All 21 MVP GDDs authored
 - [ ] `/review-all-gdds` holistic check
