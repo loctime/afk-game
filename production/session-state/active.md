@@ -1,92 +1,45 @@
 # Session State — Active
 
-**Last Updated:** 2026-04-19 (pass 2 complete)
-**Current Task:** Balance Data Layer GDD — pass-2 fresh-session review completed; NEEDS REVISION verdict with 8 blockers applied in-session
-**Status:** Pass 1 (authoring+review): 5 blockers fixed. Pass 2 (fresh-session re-review, this session): 8 new blockers surfaced, all 8 applied. Systems index marked `In Review (revised 2026-04-19 pass 2)`. Review log updated with pass-2 entry.
-**Active GDD:** design/gdd/balance-data-layer.md (pass 2 revisions applied)
-**Sections complete:** All required (Overview, Player Fantasy, Detailed Design, Formulas, Edge Cases, Dependencies, Tuning Knobs, Acceptance Criteria) + H.7b split
+**Last Updated:** 2026-04-20 (pass 7 complete)
+**Current Task:** Balance Data Layer GDD — pass-7 full review completed; NEEDS REVISION verdict with 10 blockers applied in-session
+**Status:** Pass 1: 5 blockers fixed. Pass 2: 8 blockers fixed. Pass 3: 7 blockers + 8 recommended fixed. Pass 4: 5 blockers fixed. Pass 5: 7 blockers fixed. Pass 6: 6 blockers fixed. Pass 7: 10 blockers + 7 advisory fixed. Systems index marked `In Review (revised 2026-04-20 pass 7)`. Review log updated with full pass-7 entry.
+**Active GDD:** design/gdd/balance-data-layer.md (pass 7 revisions applied)
+**Sections complete:** All required + H.7b + all ACs through AC-055 + AC-011b + AC-011c + OQ-8 + OQ-9
 
 ## Next Action
 
-`/clear` then run `/design-review design/gdd/balance-data-layer.md` in a **fresh Claude Code session** (pass 3) to validate the pass-2 revisions. Reviewer must not inherit this session's revision context. Expected verdict: APPROVED barring new issues.
+`/clear` then run `/design-review design/gdd/balance-data-layer.md` in a **fresh Claude Code session** (pass 8) to validate the pass-7 revisions. This should be a **diff review** (verify 10 targeted fixes only). Expected verdict: APPROVED.
 
-## Pass-2 blocker fixes (8 applied, all blockers resolved in-session)
+Creative-director recommendation: spawn only **godot-gdscript-specialist** and **qa-lead** for pass 8 (targeted) — game-designer and systems-designer's remaining items are either folded into blockers or genuinely advisory.
 
-1. **Hot-reload sequence (C.1.8)** — `ResourceLoader.load(..., CACHE_MODE_IGNORE)` result used directly; atomic `_templates = new_templates` on success; `emit_signal("balance_database_reloaded", ok)` with typed `success` arg.
-2. **`_assert_handler` Callable seam removed (C.1.4)** — replaced with `_validation_errors` accumulator + terminal `if _is_debug: assert(false, joined)`. AC-018/019/031/032 rewritten.
-3. **Rule 12 severity + AC-051 split (C.1.1, C.1.6, H.7b)** — added `allow_loop_seam: bool = false` on WaveScalingCurve; release fails without override; AC-051 split into 051a (hp warn), 051b (dmg warn), 051c (release fail), 051d (release pass with override).
-4. **Formula-level guards (D.1)** — `w < 0` fallback; `assert(loop_*_scale > 0)` at entry; `assert(is_finite(result))` at output.
-5. **`defense_per_vit > 0` strict (C.1.6 Rule 5)** — pillar-protection invariant.
-6. **Autoload-order hard constraint (C.1.4)** — BalanceDatabase MUST be autoload #1.
-7. **AC-033/AC-035 unified BLOCKING (H.8)** — table row + summary paragraph aligned; `tools/ci/lint_forbidden_patterns.sh` is the blocking enforcement point.
-8. **AC-016 key fix + H.8 stale row removed** — AC-016 uses valid key `&"str"`; duplicate-budget row struck through (AC-049 in Enemy System GDD).
+## Pass-7 blocker fixes (10 applied, all resolved in-session)
 
-## Pass-2 deferred items
+1. **Dict literal syntax** — reverted pass-6's `{ key = value }` to `{ &"key": value }` StringName-keyed colon form in D.1 guard returns, E.1 fallback, AC-041.
+2. **D.1 push_error → _error_reporter.call()** — four direct `push_error()` calls replaced; AC-029/AC-029b rewritten; AC list in C.1.4 updated.
+3. **`PackedStringArray().join()`** — `Array[String].join()` absent in GDScript 4.x; fixed in C.1.4.
+4. **LOCAL VARIABLE note scoped to scales only** — removed erroneous `wave_entries` local-copy instruction.
+5. **`is_boss + spawn_count == 0` validator FAIL + AC-011c** — Rule 7 extended; AC-011c added; H.2 + H.8 updated.
+6. **AC-029/AC-029b reporter injection** — "push_error is called" → `_error_reporter` injection.
+7. **AC-009a injection spec** — `_error_reporter` injection + message-content substring added.
+8. **H.8 blocking gates paragraph** — AC-011b + AC-011c added by name.
+9. **Test isolation (H.3 + AC-011b + AC-053)** — per-test reset clause; AC-011b one-entry fixture; AC-053 same-instance constraint.
+10. **`Dictionary[StringName, bool]`** — static typing enforced on `_warned_no_loop_curves`.
 
-- 12 RECOMMENDED items deferred to pass 3 or later GDDs (see review log pass-2 entry for full list).
-- 4 NICE-TO-HAVE deferred.
-- Ceremony trim-pass deferred until 2+ consumer GDDs exist.
+## Pass-7 advisory applied (7)
 
-## Progress Checklist
+- Guard ordering in D.1 (empty check before w<0)
+- Output range `≥ 0.0` in D.1 variable table + description
+- duplicate() claim softened in C.1.5
+- G.2 spawn_count non-scaling note
+- AC-051d `_warning_reporter` routing specified
+- AC-053 same-curve-id constraint
+- AC-041 immediate-return contract sentence
 
-- [x] Game concept placed at `design/gdd/game-concept.md`
-- [x] `/design-review` run on game-concept (verdict: NEEDS REVISION, accepted with deferral)
-- [x] `/setup-engine` run — Godot 4.6 + GDScript + Mobile/Desktop + GdUnit4 configured
-- [x] `/map-systems` run — 25 systems enumerated
-- [x] **First MVP GDD authored**: `design/gdd/balance-data-layer.md`
-- [x] `/design-review` pass 1 (authoring session) — 5 blockers applied
-- [x] `/design-review` pass 2 (this fresh session) — 8 blockers applied
-- [ ] `/design-review` pass 3 (next fresh session) — validate pass-2 fixes, expected APPROVED
-- [ ] Next MVP GDD: Game State Manager (Foundation layer, next in design order)
-- [ ] All 21 MVP GDDs authored
-- [ ] `/review-all-gdds` holistic check
-- [ ] `/gate-check pre-production`
+## Remaining recommended deferred (carry to pass 8 if not resolved)
 
-## To Resume
-
-Abrir nueva sesión en este directorio y correr:
-`/design-system balance-data-layer`
-
-El skill detecta las secciones completas en el archivo y retoma desde Detailed Design automáticamente. No hay que repetir decisiones previas.
-
-## Progress Checklist
-
-- [x] Game concept placed at `design/gdd/game-concept.md`
-- [x] `/design-review` run on game-concept (verdict: NEEDS REVISION, accepted with deferral — bloqueantes resolverán en GDDs por sistema)
-- [x] `/setup-engine` run — Godot 4.6 + GDScript + Mobile/Desktop + GdUnit4 configured
-- [x] `/map-systems` run — 25 systems enumerated, dependency-mapped, priority-assigned
-- [ ] First MVP GDD authored (recommended: Balance Data Layer)
-- [ ] All 21 MVP GDDs authored
-- [ ] `/review-all-gdds` holistic check
-- [ ] `/gate-check pre-production`
-
-## Key Decisions
-
-- **Engine**: Godot 4.6 (HIGH knowledge risk — agents must read engine-reference/godot/VERSION.md)
-- **Language**: GDScript
-- **Review mode**: lean (directors gate only at phase transitions)
-- **Platform**: Mobile primary + Desktop secondary; Touch primary input; 60fps / 16.6ms / 100 draw calls / 512MB
-- **Testing**: GdUnit4
-- **MVP scope**: 21 systems, Vertical Slice adds 4 more (Audio, Parallax, Settings, Map)
-- **Deferred (Sec 14)**: pets, crafting, guilds, dungeons, multi-zone enemy tables, extra skills
-
-## Files Created/Modified
-
-- `design/gdd/game-concept.md` (moved from repo root)
-- `design/gdd/reviews/game-concept-review-log.md`
-- `design/gdd/systems-index.md`
-- `CLAUDE.md` (Technology Stack updated)
-- `.claude/docs/technical-preferences.md` (fully populated)
-- `production/review-mode.txt` = `lean`
-
-## Open Questions (for future sessions)
-
-- Concrete formulas (STR→damage, VIT→HP, XP curve, wave HP scaling, offline efficiency %): deferred to per-system GDDs
-- Inventory capacity cap: TBD in Inventory & Equipment GDD
-- Revive cost/penalty: decision pending — current design is free revive
-- Zone unlock gating (by wave/boss/gold): TBD in Map/Zone Panel GDD
-
-## Next Recommended Actions
-
-1. `/prototype combat-engine` — validate core loop before writing its big GDD (High-risk system)
-2. OR `/design-system balance-data-layer` — start authoring MVP Foundation GDDs in order
+- AC-001 `balance_load_failed` NOT-fire clause
+- AC-019 fixture three-rule spec (cross-rule violations)
+- OQ-1 false "C++ path" claim in CACHE_MODE_IGNORE description
+- E.3 `resource_local_to_scene` failure description inaccuracy
+- `is_boss` authoring notes (cadence + common mistakes) — authoring-notes file
+- AC-029b fixture description narrative (two-stage explanation is confusing)
