@@ -1,5 +1,28 @@
 # Review Log — balance-data-layer.md
 
+## Review — 2026-05-01 (pass 8) — Verdict: NEEDS REVISION (8 blockers applied in-session, awaiting fresh-session pass 9)
+Scope signal: S (all fixes are targeted text edits; no schema or architecture changes)
+Specialists: godot-gdscript-specialist, qa-lead, game-designer, systems-designer, creative-director (senior synthesis)
+Blocking items: 8 (all applied in-session) | Recommended: 5 (deferred) | Nice-to-have: 3
+Prior verdict resolved: No — pass-7's 10 fixes held; 8 new blockers surfaced from contract-drift and phantom-API patterns.
+
+Summary: Fresh-session pass-8 targeted diff review. Architecture confirmed stable. Three repeating failure-mode patterns diagnosed across 8 passes: (1) contract drift between sections, (2) ACs referencing seams not declared in C.1.4, (3) foundation-layer overreach into unwritten downstream systems. Key fixes: (1) C.1.6 "Failure mode" still said `push_error()` per violation — contradicted C.1.4 routing contract; changed to `_error_reporter.call()`. (2) AC-011c (added pass 7) missing `_is_debug = false` injection — obsoleted by pass-8 Fix #6 downgrade. (3) AC-011c "is_ready for this curve's family" referenced non-existent per-family API — rewritten to use `_templates` membership. (4) D.1 INF guard referenced `e` computed only inside looping branch — SCOPE REQUIREMENT block added specifying function-scope `var e` and `var loop_count` with safe defaults before branching. (5) OQ-1 "C++ path" claim factually incorrect — `ResourceLoader.CacheMode.IGNORE` is valid GDScript 4.x; rationale rewritten to "flat-namespace is idiomatic GDScript style." (6) is_boss spawn_count==0 FAIL downgraded to WARNING — foundation layer must not encode constraints of unwritten downstream GDDs; WARNING message now cites game-concept.md §5.3; AC-011c rewritten to test warning behavior; coverage table updated. (7) AC-001 missing complement — AC-001b added: balance_load_failed must NOT fire on clean load. (8) `_validation_errors: Array[String]` not declared in C.1.4 seam block — added with reset-on-validation note.
+
+### Blockers applied (8)
+1. **C.1.6 Failure mode `push_error()` → `_error_reporter.call()`** (godot-gdscript-specialist) — routing contract violation; would bypass injection seams for 8 ACs.
+2. **AC-011c _is_debug injection** (godot-gdscript-specialist) — obsoleted by Fix #6 (downgrade eliminated assert(false) path); Fix #3 resolves the phantom-API half.
+3. **AC-011c "is_ready for this curve's family" phantom API** (qa-lead) — rewritten to "`_templates` membership + is_ready may still reach true."
+4. **D.1 INF guard `var e` scope** (systems-designer) — SCOPE REQUIREMENT block added before branching; specifies `var e: int = wave_entries.size() - 1` and `var loop_count: int = 0` at function scope.
+5. **OQ-1 "C++ path" false claim** (systems-designer + godot-gdscript-specialist, dual convergence) — rationale corrected; nested enum access is valid GDScript 4.x.
+6. **is_boss spawn_count==0 FAIL → WARNING** (game-designer, creative-director upheld) — foundation overreach; downgraded; AC-011c rewritten; C.1.6 Rule 7 and coverage table updated.
+7. **AC-001b complement** (qa-lead + creative-director) — balance_load_failed NOT-fire on clean load; added to H.1.
+8. **`_validation_errors` not in C.1.4 seams** (systems-designer + creative-director) — added with declaration and reset-on-validation note.
+
+### Recommended (5 deferred to pass 9 or advisory)
+Pass-7 fix #3 rationale incorrect (Array[String].join() does exist); AC-029 subscript omission; test_validator_rules.gd isolation preamble; G.2 loop_after_wave=0 row ambiguity; is_boss spawn_count>1 WARNING should cite game-concept.md §5.3.
+
+---
+
 ## Review — 2026-04-20 (pass 7) — Verdict: NEEDS REVISION (10 blockers applied in-session, awaiting fresh-session pass 8)
 Scope signal: S (all fixes are targeted text edits; ~60–90 min; no architectural change)
 Specialists: game-designer, systems-designer, qa-lead, godot-gdscript-specialist, creative-director (senior synthesis)
