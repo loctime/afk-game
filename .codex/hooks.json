@@ -1,0 +1,66 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\User\\Desktop\\Proyectos\\AFK-game\\.codex\\hooks\\validate-commit.sh'",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\User\\Desktop\\Proyectos\\AFK-game\\.codex\\hooks\\validate-push.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\User\\Desktop\\Proyectos\\AFK-game\\.codex\\hooks\\validate-assets.sh'",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\User\\Desktop\\Proyectos\\AFK-game\\.codex\\hooks\\validate-skill-change.sh'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\User\\Desktop\\Proyectos\\AFK-game\\.codex\\hooks\\session-start.sh'",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\User\\Desktop\\Proyectos\\AFK-game\\.codex\\hooks\\detect-gaps.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash 'C:\\Users\\User\\Desktop\\Proyectos\\AFK-game\\.codex\\hooks\\session-stop.sh'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
