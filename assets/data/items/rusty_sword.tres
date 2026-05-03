@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/core/balance/resources/item_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"rusty_sword"
+schema_version = 1
+display_name = "Rusty Sword"
+rarity = &"common"
+slot = &"weapon"
+stat_roll_ranges = {
+&"str": Vector2(1, 3)
+}
+icon_path = "res://assets/icons/items/rusty_sword.png"

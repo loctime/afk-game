@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="CharacterProgressionCurve" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/core/balance/resources/character_progression_curve.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"default"
+schema_version = 1
+xp_per_level = Array[float]([0.0, 100.0, 250.0, 450.0, 700.0, 1000.0])
+max_level = 5
+hp_per_vit = 12.0
+defense_per_vit = 0.35
+mana_per_int = 7.0
+atk_per_str = 2.0
+speed_per_dex = 0.15
+base_stats = {
+&"dex": 5,
+&"int": 5,
+&"str": 5,
+&"vit": 5
+}
+stat_points_per_level = 2

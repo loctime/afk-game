@@ -4,4 +4,10 @@
 
 [resource]
 script = ExtResource("1")
-paths = Array[String]([])
+paths = Array[String]([
+"res://assets/data/enemies/slime_common.tres",
+"res://assets/data/items/rusty_sword.tres",
+"res://assets/data/skills/slash_basic.tres",
+"res://assets/data/waves/default_wave_curve.tres",
+"res://assets/data/progression/default_progression.tres"
+])

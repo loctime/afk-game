@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyDefinition" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/core/balance/resources/enemy_definition.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"slime_common"
+schema_version = 1
+display_name = "Common Slime"
+base_hp = 40.0
+base_damage = 6.0
+behavior_tag = &"melee"
+size_category = &"small"
+sprite_path = "res://assets/sprites/enemies/slime_common.png"
+drop_table_id = &""
