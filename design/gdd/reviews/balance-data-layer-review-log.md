@@ -1,5 +1,78 @@
 # Review Log — balance-data-layer.md
 
+## Review — 2026-05-02 (pass 11) — Verdict: NEEDS REVISION (4 blockers applied in-session; awaiting fresh-session pass 12)
+Scope signal: S (all fixes are targeted text edits + one seam addition to C.1.4; no schema or architecture changes)
+Specialists: godot-gdscript-specialist, qa-lead, systems-designer, game-designer, creative-director (senior synthesis)
+Blocking items: 4 (all applied in-session) | Recommended: 5 (all applied in-session) | Advisory: 3 (deferred)
+Prior verdict resolved: Yes — pass-10's 3 in-session fixes all confirmed held under fresh-session re-read.
+
+Summary: Pass-11 fresh-session re-review. Architecture stable; all pass-10 fixes confirmed held. Four new blockers surfaced by implementation-contract specialists. Root cause: two routing-contract prose gaps (lines 226 and 447 described `push_error` where `_error_reporter.call()` is required) and two AC notation bugs (AC-026/029/029b used `effective_hp_mult` / `&"key" == value` instead of `result[&"key"]` subscript form; AC-043 claimed "mock ResourceLoader fixture" which is an engine singleton with no mock point). All four fixed in-session. Five recommended items also applied: status header updated, `PackedStringArray` rationale comment added, `duplicate(true)` deprecation hardened, AC-011b/011c `_is_debug` notes added, H.2 isolation preamble added. Three advisory items deferred.
+
+### Blockers applied (4)
+1. **Line 447 "MUST use `push_error`" → "MUST invoke `_error_reporter.call()`"** (godot-gdscript-specialist, confirmed creative-director BLOCKER) — normative prose under "Mandatory implementation guards" prescribed direct `push_error()` which violates C.1.4 routing contract and makes guards untestable. Also fixed line 515 "Why" paragraph for consistency.
+2. **Line 226 miss contract incomplete** (godot-gdscript-specialist, confirmed creative-director BLOCKER) — debug-build miss contract prose only mentioned `assert(result != null)`, omitting the mandatory `_error_reporter.call()` that must precede it. AC-031 required both; prose only specified one; implementer would write non-routing code.
+3. **AC-043 "mock ResourceLoader fixture" → `_load_resource: Callable` seam** (qa-lead, confirmed creative-director BLOCKER) — `ResourceLoader` is an engine singleton with no injection point; unit test was literally unimplementable. Added `_load_resource: Callable` to C.1.4 seam table with routing-contract comment; AC-043 rewritten against the new seam. Pass-10's R7 deferral was wrong — escalated correctly.
+4. **AC-026/AC-029/AC-029b notation `&"key" == value` / `effective_hp_mult ==`** (qa-lead, confirmed creative-director BLOCKER) — `StringName == float` comparison always returns `false`; `effective_hp_mult` is undefined in test scope when formula returns a Dictionary. Silent vacuous-pass risk. All three ACs rewritten to use `result[&"key"]` subscript form matching AC-041.
+
+### Recommended applied (5)
+1. PackedStringArray rationale comment: Array[String].join() does not exist in GDScript 4.x.
+2. `duplicate(true)` language: "still functions" → "deprecated as of 4.5, must not appear in 4.6 code."
+3. AC-011b + AC-011c: added note that `_is_debug` injection is NOT required (warning-only paths, no assert branch reachable).
+4. H.2 isolation preamble: added test-isolation requirement matching H.3's pattern.
+5. Status header: updated to pass 11 / 2026-05-02.
+
+### Recommended deferred (7)
+R1: AC-029/029b/026 subscript — resolved (applied as B-4). R2: AC-011b game-concept.md §5.3 citation. R5: G.2 loop_after_wave=0 row clarification. R7: AC-043 seam — resolved (applied as B-3). R8: D.2 boss formula pointer. R10: AC-011c _is_debug note — resolved (applied in recommended). Remaining deferred: R2, R5, R8.
+
+### Advisory deferred (3)
+A1: C.1.4 PackedStringArray rationale — resolved (applied). Remaining: A2 (D.1 SCOPE REQUIREMENT `e` comment), A3 (Player Fantasy numeric vs structural authoring distinction).
+
+---
+
+## Review — 2026-05-02 (pass 10) — Verdict: NEEDS REVISION (2 blockers + R3 recommended applied in-session, awaiting fresh-session pass 11)
+Scope signal: S (all fixes are targeted text edits; no schema or architecture changes)
+Specialists: godot-gdscript-specialist, systems-designer, qa-lead, game-designer, creative-director (senior synthesis)
+Blocking items: 2 (both applied in-session) | Recommended: 1 also applied (R3) | Advisory: 2
+Prior verdict resolved: Yes — pass-9's 3 blockers confirmed held after fresh-session inspection.
+
+Summary: Pass-10 fresh-session re-review. Architecture stable; all pass-9 blockers confirmed held. Two new blockers surfaced (same root cause: routing contract propagation incomplete after prior in-session fixes). (1) State machine Transitions prose RELOADING→READY(with errors) still said "push errors to the Output panel" — the pass-9 fix updated the state machine TABLE cells but not the Transitions prose at line 331; directly contradicts C.1.4 routing contract. Fixed: "route errors through `_error_reporter`". (2) AC-054 (unrecognized-class skip) had no `_warning_reporter` injection seam — all 7 other warning-path ACs specify injection; AC-054 was in the CI BLOCKING GATES list but untestable as written. Fixed: added injection + test note. R3 (AC-011b message content — no required substring, asymmetric with AC-011c) applied as recommended: added `"is_boss: true with spawn_count"` substring pin. Seven recommended and two advisory items deferred.
+
+### Blockers applied (2)
+1. **RELOADING→READY transition "push errors to the Output panel" → "route errors through `_error_reporter`"** (godot-gdscript-specialist + systems-designer + qa-lead, confirmed creative-director) — routing contract violation; state machine table was fixed in pass 9 but prose was not; would cause implementer to bypass injection seam for hot-reload error path.
+2. **AC-054 missing `_warning_reporter` injection** (godot-gdscript-specialist + qa-lead, confirmed creative-director) — only warning-path AC without an injection seam; listed in CI BLOCKING GATES but untestable as written; added injection language matching AC-051a/b/d pattern.
+
+### Recommended applied (1)
+R3: AC-011b `_warning_reporter` message content had no required substring — asymmetric with AC-011c which pins `"boss with zero spawn count"`. Added `"is_boss: true with spawn_count"` substring pin.
+
+### Recommended deferred (7)
+R1: AC-029/029b/026 dict subscript form `result[&"hp_mult"]` missing. R2: AC-011b warning message lacks `(see game-concept.md §5.3)` citation. R5: G.2 loop_after_wave=0 row "Loop starts immediately" misleading (wave 0 is unscaled). R6: H.2 lacks test isolation preamble. R7: AC-043 "mock ResourceLoader fixture" ambiguous. R8: D.2 missing boss stat scaling row. R10: AC-011c lacks explicit note that no `_is_debug = false` needed.
+
+### Advisory deferred (2)
+A1: C.1.4 `PackedStringArray(_validation_errors).join("\n")` rationale gap. A2: D.1 SCOPE REQUIREMENT comment `e` default ambiguity.
+
+---
+
+## Review — 2026-05-09 (pass 9) — Verdict: NEEDS REVISION (3 blockers applied in-session, awaiting fresh-session pass 10)
+Scope signal: S (all fixes are targeted text edits; no schema or architecture changes)
+Specialists: godot-gdscript-specialist, qa-lead, systems-designer, game-designer, creative-director (senior synthesis)
+Blocking items: 3 (all applied in-session) | Recommended: 10 | Advisory: 2
+Prior verdict resolved: Yes — pass-8's 8 blockers confirmed held after fresh-session inspection. Plus one pre-review fix applied: C.1.4 Miss contract `push_error(...)` → `_error_reporter.call(...)`.
+
+Summary: Pass-9 targeted fresh-session review. Architecture stable; all pass-8 blockers confirmed held. Three new blockers surfaced and all resolved in-session — all instances of the same root cause: routing contract propagation incomplete after the pass-9 entry fix. (1) D.1 representative output scale table "Loops" column systematically off by −1 (`loop_count − 1` throughout), with HP mult values computed against the wrong exponent; directly contradicted AC-022. Corrected all 6 rows. (2) State machine table "Getter behavior" column used colloquial "pushes error" for UNLOADED/LOADING/VALIDATING/FAILED states — replaced with `routes through _error_reporter` per routing contract. (3) E.4 prose "release returns null + push_error" — replaced with `routes through _error_reporter`. Ten recommended and two advisory items deferred.
+
+### Blockers applied (3)
+1. **D.1 representative table Loops off-by-one** (systems-designer, confirmed creative-director) — "Loops" column used `loop_count − 1`; HP mult values used wrong exponent; contradicted AC-022. Corrected: Loops 4→5, 9→10, 19→20, 49→50, 99→100; HP mult ≈3.5→4.0, ≈7.1→8.1, ≈32→32.7, ≈930→2,200, ≈8.6×10⁵→2.35×10⁶.
+2. **State machine table "pushes error" → `routes through _error_reporter`** (godot-gdscript-specialist, creative-director BLOCKER) — four getter-behavior cells (UNLOADED, LOADING, VALIDATING, FAILED) used ambiguous "pushes error"; routing contract mandates `_error_reporter`; would cause implementer to bypass injection seam.
+3. **E.4 prose "push_error" → `routes through _error_reporter`** (godot-gdscript-specialist, creative-director BLOCKER) — normative prose describing production code path used forbidden direct call; AC-044 was correct but E.4 would mislead implementer.
+
+### Recommended deferred (10)
+R1: AC-029/029b/026 dict subscript form `result[&"hp_mult"]` missing (match AC-041 form). R2: AC-011b spawn_count > 1 warning lacks `(see game-concept.md §5.3)` citation — asymmetric with spawn_count == 0 warning. R3: AC-011b message content assertion has no required substring (AC-011c pins "boss with zero spawn count"). R4: AC-054 THEN clause has no `_warning_reporter` injection — "warning is logged" untestable without seam. R5: G.2 loop_after_wave = 0 row — "Loop starts immediately" misleading; wave 0 is unscaled. R6: H.2 lacks file-level test isolation preamble (H.3 has one). R7: AC-043 "mock ResourceLoader fixture" ambiguous — clarify as filesystem fixture (real .tres with mismatched resource_path). R8: D.2 missing boss-specific stat scaling row pointing to Wave & Phase Manager. R9: RELOADING → READY transition "push errors to the Output panel" should say `_error_reporter.call()`. R10: AC-011c `_error_reporter` stub missing "reset in before_each" + note clarifying no `_is_debug = false` needed (WARNING-only path).
+
+### Advisory deferred (2)
+A1: C.1.4 `PackedStringArray(_validation_errors).join("\n")` — incorrect rationale removed in pass 8 but no replacement explanation added; code is correct but unexplained. A2: D.1 SCOPE REQUIREMENT comment — INF guard unreachable on no-loop branch in practice; comment labels e's default as "pre-loop path safe default" which is ambiguous.
+
+---
+
 ## Review — 2026-05-01 (pass 8) — Verdict: NEEDS REVISION (8 blockers applied in-session, awaiting fresh-session pass 9)
 Scope signal: S (all fixes are targeted text edits; no schema or architecture changes)
 Specialists: godot-gdscript-specialist, qa-lead, game-designer, systems-designer, creative-director (senior synthesis)

@@ -1,9 +1,9 @@
 # Balance Data Layer
 
-> **Status**: In Design — Revised post-review (2026-05-01, pass 8 revisions applied)
+> **Status**: In Design — Revised post-review (2026-05-02, pass 11 revisions applied)
 > **Author**: User + game-designer + systems-designer
-> **Last Updated**: 2026-05-01
-> **Last Verified**: 2026-05-01
+> **Last Updated**: 2026-05-02
+> **Last Verified**: 2026-05-02
 > **Review history**: see `design/gdd/reviews/balance-data-layer-review-log.md`
 > **Implements Pillar**: Infrastructure — enables data-driven progression ("ver cómo tu personaje se vuelve más poderoso con el tiempo")
 
@@ -167,11 +167,19 @@ var _error_reporter: Callable = func(msg: String) -> void: push_error(msg)
 var _warning_reporter: Callable = func(msg: String) -> void: push_warning(msg)
 # _warning_reporter mirrors _error_reporter: swap in tests to capture push_warning calls
 # (e.g., AC-026, AC-053, AC-051a, AC-051b). Production value emits via push_warning.
+var _load_resource: Callable = func(path: String, type_hint: String, cache_mode: int) -> Resource:
+    return ResourceLoader.load(path, type_hint, cache_mode)
+# _load_resource wraps ResourceLoader.load() so AC-043 (UID-remap warning) can inject a
+# stub that returns a Resource whose resource_path != the manifest path — ResourceLoader
+# is an engine singleton with no mock point; this seam is the only way to unit-test
+# the remap-detection path without a filesystem fixture.
 # --- Reporter routing contract (required for testability) ---
 # ALL warning output in this module MUST route through _warning_reporter.
 # ALL error output MUST route through _error_reporter.
-# Direct push_warning() / push_error() calls in production code paths are FORBIDDEN —
-# bypassing these reporters makes AC-026, AC-051a/b, AC-053, AC-018, AC-032, AC-041, AC-029, AC-029b untestable.
+# ALL ResourceLoader.load() calls MUST go through _load_resource.
+# Direct push_warning() / push_error() / ResourceLoader.load() calls in production code
+# paths are FORBIDDEN — bypassing these seams makes AC-026, AC-051a/b, AC-053, AC-018,
+# AC-032, AC-041, AC-029, AC-029b, AC-043 untestable.
 
 # Session-scoped one-time warning tracking (owned by BalanceDatabase, not by the Resource):
 var _warned_no_loop_curves: Dictionary[StringName, bool] = {}
@@ -197,6 +205,8 @@ var _validation_errors: Array[String] = []
 #   2. After all rules run, if _is_debug and _validation_errors.size() > 0:
 #        assert(false, "BalanceDatabase boot validation failed:\n" +
 #                      PackedStringArray(_validation_errors).join("\n"))
+#              # PackedStringArray() wrapping is required: Array[String] has no
+#              # .join() method in GDScript 4.x — only PackedStringArray does.
 #
 # Test coverage boundary (important — do NOT claim more than this):
 #   * `_is_debug = false` in a test exercises the runtime control flow as if
@@ -223,8 +233,8 @@ if not BalanceDatabase.is_ready:
 
 **Miss contract** (consistent across all getters):
 
-- **Debug builds**: `assert(result != null, "BalanceDatabase: unknown <family> id '%s'" % id)` — crash loudly.
-- **Release builds**: `push_error(...)` and return `null`. Consumers guard at the call site.
+- **Debug builds**: `_error_reporter.call(...)` invoked first (routing contract — required for AC-031 observable-effect b), then `assert(result != null, "BalanceDatabase: unknown <family> id '%s'" % id)` terminates the process — crash loudly. Both steps are required; the assert alone bypasses the injection seam.
+- **Release builds**: `_error_reporter.call(...)` and return `null`. Consumers guard at the call site.
 - No fallback sentinel Resources. Silent "default enemy" returns are forbidden.
 
 Consumers that may run before autoloads finish must await `database_ready`. In practice the main scene's `_ready()` already fires after all autoloads, so this only matters for peer autoloads listed after `BalanceDatabase`.
@@ -233,7 +243,7 @@ Consumers that may run before autoloads finish must await `database_ready`. In p
 
 - Resources returned by `BalanceDatabase` getters are **templates** — treat as read-only.
 - Systems that need mutable per-instance state (Enemy System spawning a live enemy, Item System rolling stats on a drop) must call `resource.duplicate_deep()` **exactly once at instantiation** and store the instance on the owning node. Never duplicate per-frame.
-  - **Godot 4.5+ API:** `duplicate_deep()` was introduced in Godot 4.5 as the explicitly-named deep-copy method for Resources. The older `duplicate(true)` form still functions but should not appear in new code authored against the 4.6 pin — prefer the self-documenting `duplicate_deep()` name. Every consumer MUST use `duplicate_deep()` — no `duplicate(true)` call sites are permitted in code authored against the 4.6 pin.
+  - **Godot 4.5+ API:** `duplicate_deep()` was introduced in Godot 4.5 as the explicitly-named deep-copy method for Resources. The older `duplicate(true)` form is **deprecated as of 4.5 and must not appear in code authored against the 4.6 pin**. Every consumer MUST use `duplicate_deep()` — no `duplicate(true)` call sites are permitted.
 - `WaveScalingCurve` and `CharacterProgressionCurve` are read-only lookups — never duplicated.
 - Consumer pattern: cache the typed reference at node init; do not call back into `BalanceDatabase` from `_process` / `_physics_process` / per-hit signals.
 - **Nested Node-derived or physics sub-resources inside Balance Resources are forbidden** — they make `duplicate_deep()` cost unbounded. Balance Resources hold only primitives, StringNames, typed arrays, Dictionaries, and Vector2/3.
@@ -312,12 +322,12 @@ The `BalanceDatabase` autoload holds a small state machine that consumers can ob
 
 | State | `is_ready` | Getter behavior | Entered when |
 |---|---|---|---|
-| **UNLOADED** | `false` | Returns `null` + pushes error; asserts in debug | Initial state before autoload `_ready()` runs |
-| **LOADING** | `false` | Returns `null` + pushes error; asserts in debug | Autoload `_ready()` begins reading the manifest |
-| **VALIDATING** | `false` | Returns `null` + pushes error; asserts in debug | After all Resources parsed, before validator finishes |
+| **UNLOADED** | `false` | Returns `null` + routes through `_error_reporter`; asserts in debug | Initial state before autoload `_ready()` runs |
+| **LOADING** | `false` | Returns `null` + routes through `_error_reporter`; asserts in debug | Autoload `_ready()` begins reading the manifest |
+| **VALIDATING** | `false` | Returns `null` + routes through `_error_reporter`; asserts in debug | After all Resources parsed, before validator finishes |
 | **READY** | `true` | Normal: returns template for known IDs, enforces miss contract for unknown | Validator passed (or skipped in degraded release) |
 | **RELOADING** | `true` (stays true to avoid stalling consumers) | Returns the *previous* template until reload completes | `hot_reload()` called in dev build |
-| **FAILED** | `false` | Returns `null` + pushes error; never asserts (already failed) | Validation failed in release build; `balance_load_failed` emitted |
+| **FAILED** | `false` | Returns `null` + routes through `_error_reporter`; never asserts (already failed) | Validation failed in release build; `balance_load_failed` emitted |
 
 #### Transitions
 
@@ -328,7 +338,7 @@ The `BalanceDatabase` autoload holds a small state machine that consumers can ob
 - `VALIDATING → FAILED` — release build, validator collected ≥1 error. Offending Resources dropped from `_templates`, `balance_load_failed` emitted, `is_ready` stays `false`.
 - `READY → RELOADING` — dev-only hot-reload hotkey fires. `is_ready` intentionally stays `true` so mid-session consumers continue to see the old templates while reload is in flight.
 - `RELOADING → READY` — reload succeeded; emit `balance_database_reloaded`. Already-duplicated instances in the active scene are stale by design (see C.1.8).
-- `RELOADING → READY (with errors)` — reload's validator reported errors. In dev this is treated as non-fatal: push errors to the Output panel, keep the *old* templates in `_templates` (do not replace them with a half-valid set), emit `balance_database_reloaded` with a reload-failed flag so dev tools can show a notice. The session continues with the pre-reload data.
+- `RELOADING → READY (with errors)` — reload's validator reported errors. In dev this is treated as non-fatal: route errors through `_error_reporter`, keep the *old* templates in `_templates` (do not replace them with a half-valid set), emit `balance_database_reloaded` with a reload-failed flag so dev tools can show a notice. The session continues with the pre-reload data.
 - No transition out of `FAILED` — release builds do not support recovery-reload. A FAILED state requires restarting the game.
 
 #### Consumer rules
@@ -444,7 +454,7 @@ Else (w > loop_after_wave, looping active):
 
 **Output Range:** Both outputs are non-negative floats (`≥ 0.0`), unbounded above. They can reach exactly `0.0` via f64 subnormal underflow when `loop_*_scale < 1.0` at extreme wave counts — `is_finite(0.0)` returns `true`, so the INF guard does not catch this. Consumer systems **must** apply their own floor (e.g., ≥ 0.01). This formula does **not** clamp — see E.2 for the de-escalating-scale edge case. Entries past index `loop_after_wave` in the array are ignored when looping is active (validator warns at boot but doesn't fail).
 
-**Mandatory implementation guards — runtime-safe (survive release builds).** `assert()` is compile-time-stripped from release exports in GDScript, so guards that must run in shipped binaries MUST use `push_error` + explicit fallback, NOT `assert`. The validator is the primary gate; these runtime guards are a belt-and-braces secondary that must still work when the validator was bypassed (e.g., tool scripts, tests constructing curves in memory, or a release build where a validation failure dropped the curve):
+**Mandatory implementation guards — runtime-safe (survive release builds).** `assert()` is compile-time-stripped from release exports in GDScript, so guards that must run in shipped binaries MUST invoke `_error_reporter.call()` + explicit fallback return, NOT `assert` and NOT direct `push_error()` — direct `push_error` bypasses the C.1.4 routing contract and makes these guards untestable. The validator is the primary gate; these runtime guards are a belt-and-braces secondary that must still work when the validator was bypassed (e.g., tool scripts, tests constructing curves in memory, or a release build where a validation failure dropped the curve):
 
 ```gdscript
 # LOCAL VARIABLE REQUIREMENT — `loop_hp_scale` and `loop_dmg_scale` MUST be
@@ -502,7 +512,7 @@ if not is_finite(effective_hp_mult) or not is_finite(effective_dmg_mult):
     }
 ```
 
-**Why `_error_reporter` + fallback, not assert:** `assert(is_finite(...))` would be a no-op in the shipped release binary (GDScript strips `assert()` at export time). A player reaching wave ~1,550 in a release build would then see INF propagate into Combat Engine as NaN, silently breaking HP display and hit detection. `_error_reporter` (backed by `push_error` in production) fires in both debug and release; the explicit `return` guarantees downstream systems receive a finite value even at overflow boundaries.
+**Why `_error_reporter.call()` + fallback, not assert:** `assert(is_finite(...))` would be a no-op in the shipped release binary (GDScript strips `assert()` at export time). A player reaching wave ~1,550 in a release build would then see INF propagate into Combat Engine as NaN, silently breaking HP display and hit detection. `_error_reporter.call()` (whose production default delegates to `push_error`) fires in both debug and release; the explicit `return` guarantees downstream systems receive a finite value even at overflow boundaries.
 
 The negative-`w` fallback returning `wave_entries[0]` (not `wave_entries[-1]`, which GDScript would wrap to the last element — silent semantic error) is the safe default covered by AC-029.
 
@@ -521,11 +531,11 @@ hp_mult(27)  = 2.0 × 1.15² = 2.0 × 1.3225 = 2.645
 | Wave | Loops | Effective HP mult |
 |---|---|---|
 | 0–9 | 0 | 1.0 – 2.0 (authored) |
-| 50 | 4 | ≈ 3.5 |
-| 100 | 9 | ≈ 7.1 |
-| 200 | 19 | ≈ 32 |
-| 500 | 49 | ≈ 930 |
-| 1000 | 99 | ≈ 8.6 × 10⁵ |
+| 50 | 5 | ≈ 4.0 |
+| 100 | 10 | ≈ 8.1 |
+| 200 | 20 | ≈ 32.7 |
+| 500 | 50 | ≈ 2,200 |
+| 1000 | 100 | ≈ 2.35 × 10⁶ |
 
 GDScript floats are f64. Precision loses sub-unit accuracy around wave 1000+, which is gameplay-irrelevant. The real risk is the *consumer* side — systems multiplying this by a base stat must use `float` through the damage pipeline, not `int`.
 
@@ -580,7 +590,7 @@ Edge cases are grouped by failure category. Every entry states the exact conditi
 
 ### E.4 Lifecycle, concurrency, and hot reload
 
-- **If a consumer calls a getter before `is_ready == true`**: debug asserts; release returns `null` + `push_error`. Consumers in `_init()` or deferred-signal paths must guard on `is_ready` or `await database_ready`.
+- **If a consumer calls a getter before `is_ready == true`**: debug asserts; release returns `null` and routes through `_error_reporter`. Consumers in `_init()` or deferred-signal paths must guard on `is_ready` or `await database_ready`.
 - **If `hot_reload()` fires mid-wave**: intentional design — `is_ready` stays `true` during RELOADING, and Wave & Phase Manager caches its resolved `WaveScalingCurve` at wave-start (documented consumer invariant). The in-flight wave completes with pre-reload data; the next wave uses reloaded data.
 - **If `hot_reload()` fires while `Save/Load` is writing or reading**: Save/Load sees pre-reload templates during the write/read (consistent snapshot). If the reload removes IDs that the just-read save references, Save/Load re-validates on `balance_database_reloaded` and applies its own missing-ID policy.
 - **If a peer autoload listed *after* `BalanceDatabase` connects to `database_ready` in its `_ready()` and the signal has already fired** (because `BalanceDatabase._ready()` completed synchronously): the connection will not re-trigger. Mitigation: peer autoloads that need balance data check `BalanceDatabase.is_ready` first, and only `await` the signal if not yet ready.
@@ -781,6 +791,8 @@ Each consumer GDD must include a "Reads from Balance Data Layer" subsection in i
 
 ### H.2 Validator rule enforcement
 
+**Test isolation requirement:** Every test function in `test_validator_rules.gd` that injects `_warning_reporter` or `_error_reporter` stubs (AC-009a, AC-011b, AC-011c, AC-051a/b/c/d) MUST reset those stubs and their call counters in `before_each`. Stub call counts from one test must not carry over to the next — tests must not depend on execution order. Use a freshly instantiated stub or call a reset method in `before_each`.
+
 Each criterion maps to one of the 12 boot validator rules from Section C.1.6 (Rule 12 was added in pass 2 of the design review).
 
 - **AC-005 (Rule 1)** GIVEN a manifest that references a non-existent file path WHEN validation runs THEN an error is recorded naming the missing path, and the system transitions to FAILED in release or asserts in debug.
@@ -810,10 +822,10 @@ Each criterion maps to one of the 12 boot validator rules from Section C.1.6 (Ru
 - **AC-011 (Rule 7)** GIVEN a `WaveScalingCurve` with `wave_entries` empty, or with `loop_after_wave >= wave_entries.size()` WHEN validation runs THEN validation fails with a density/range error.
   _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
 
-- **AC-011b (Rule 7 — is_boss multi-spawn warning)** GIVEN a `WaveScalingCurve` whose `wave_entries` contains **exactly one** entry with `is_boss: true` AND `spawn_count: 3` (all other entries have `is_boss: false`) AND `_warning_reporter` injected as a call-counting stub (reset in `before_each`) WHEN validation runs THEN `_warning_reporter` is called exactly once (message names the offending wave index) AND validation does not fail — the curve remains in `_templates` and `is_ready` reaches `true`. `_error_reporter` call count == 0. The fixture must contain exactly one violating entry so that "called at least once" is equivalent to "called exactly once" — an implementation that batches/de-duplicates warnings and fires only a single call regardless of entry count would still pass; specifying a single violating entry closes that gap.
+- **AC-011b (Rule 7 — is_boss multi-spawn warning)** GIVEN a `WaveScalingCurve` whose `wave_entries` contains **exactly one** entry with `is_boss: true` AND `spawn_count: 3` (all other entries have `is_boss: false`) AND `_warning_reporter` injected as a call-counting stub (reset in `before_each`) WHEN validation runs THEN `_warning_reporter` is called exactly once with a message containing `"is_boss: true with spawn_count"` and naming the offending wave index AND validation does not fail — the curve remains in `_templates` and `is_ready` reaches `true`. `_error_reporter` call count == 0. The fixture must contain exactly one violating entry so that "called at least once" is equivalent to "called exactly once" — an implementation that batches/de-duplicates warnings and fires only a single call regardless of entry count would still pass; specifying a single violating entry closes that gap. **Note: `_is_debug` injection is NOT required for this AC — the warning path never enters the `if _is_debug: assert(false)` branch.**
   _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd` — injects `_warning_reporter` stub; asserts call count == 1, `is_ready == true`, `_error_reporter` call count == 0._
 
-- **AC-011c (Rule 7 — is_boss zero-spawn warning)** GIVEN a `WaveScalingCurve.wave_entries[i]` with `is_boss: true` AND `spawn_count: 0` AND `_warning_reporter` injected as a call-counting stub (reset in `before_each`) AND `_error_reporter` injected as a call-counting stub (reset in `before_each`) WHEN validation runs THEN `_warning_reporter` is called at least once with a message containing `"boss with zero spawn count"`, `_error_reporter` call count == 0, the curve remains in `_templates`, and `is_ready` reaches `true`. Both `spawn_count == 0` and `spawn_count > 1` are **warnings** — unusual authoring the designer should review but neither invalidates the curve.
+- **AC-011c (Rule 7 — is_boss zero-spawn warning)** GIVEN a `WaveScalingCurve.wave_entries[i]` with `is_boss: true` AND `spawn_count: 0` AND `_warning_reporter` injected as a call-counting stub (reset in `before_each`) AND `_error_reporter` injected as a call-counting stub (reset in `before_each`) WHEN validation runs THEN `_warning_reporter` is called at least once with a message containing `"boss with zero spawn count"`, `_error_reporter` call count == 0, the curve remains in `_templates`, and `is_ready` reaches `true`. Both `spawn_count == 0` and `spawn_count > 1` are **warnings** — unusual authoring the designer should review but neither invalidates the curve. **Note: `_is_debug` injection is NOT required for this AC — this path routes only through `_warning_reporter` and never enters the `if _is_debug: assert(false)` branch.**
   _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd` — injects `_warning_reporter` stub and `_error_reporter` stub; asserts warning count ≥ 1, error count == 0, curve present in `_templates`, `is_ready == true`._
 
 - **AC-012 (Rule 8)** GIVEN a `WaveScalingCurve` whose `wave_entries[0].enemy_ids` contains `&"unknown_enemy"` and no `EnemyDefinition` with that id is loaded WHEN validation runs THEN validation fails naming the unresolved foreign key.
@@ -864,8 +876,8 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 - **AC-025 (loop_after_wave = -1, w within range)** GIVEN `loop_after_wave = -1` WHEN queried for `w = 5` (within entries) THEN `effective_hp_mult == wave_entries[5].hp_mult` and `loop_count == 0`.
   _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd`_
 
-- **AC-026 (loop_after_wave = -1, w beyond range, clamp)** GIVEN `loop_after_wave = -1` AND `_warning_reporter` injected as a call-counting stub WHEN queried for `w = 50` THEN `effective_hp_mult == wave_entries[9].hp_mult` (clamped to N-1), `loop_count == 0`, and `_warning_reporter` was called exactly once.
-  _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd` — injects `_warning_reporter` stub and asserts call count == 1 and return values._
+- **AC-026 (loop_after_wave = -1, w beyond range, clamp)** GIVEN `loop_after_wave = -1` AND `_warning_reporter` injected as a call-counting stub WHEN queried for `w = 50` THEN `result[&"hp_mult"] == wave_entries[9].hp_mult` (clamped to N-1), `result[&"loop_count"] == 0`, and `_warning_reporter` was called exactly once.
+  _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd` — injects `_warning_reporter` stub and asserts call count == 1 and `result[&"hp_mult"]` / `result[&"loop_count"]` values._
 
 - **AC-027 (loop_hp_scale = 1.0, plateau)** GIVEN `loop_hp_scale = 1.0` WHEN queried for any `w > loop_after_wave` THEN `effective_hp_mult == wave_entries[e].hp_mult * 1.0 ^ loop_count` (authored value, no growth).
   _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd`_
@@ -873,10 +885,10 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 - **AC-028 (loop_hp_scale < 1.0, decay, no clamp in this layer)** GIVEN `loop_hp_scale = 0.80` WHEN queried for `w = 27` THEN `effective_hp_mult == wave_entries[7].hp_mult * 0.80^2` — a value less than the authored base — and the formula returns it without clamping.
   _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd`_
 
-- **AC-029 (invalid w, negative)** GIVEN `w = -1` is passed to the formula AND `_error_reporter` injected as a call-counting stub THEN `_error_reporter` is called at least once AND the return value has `&"hp_mult" == wave_entries[0].hp_mult`, `&"dmg_mult" == wave_entries[0].dmg_mult`, `&"loop_count" == 0`; no crash.
-  _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd` — injects `_error_reporter` stub; asserts call count ≥ 1 and return dict field values._
+- **AC-029 (invalid w, negative)** GIVEN `w = -1` is passed to the formula AND `_error_reporter` injected as a call-counting stub THEN `_error_reporter` is called at least once AND the return value satisfies `result[&"hp_mult"] == wave_entries[0].hp_mult`, `result[&"dmg_mult"] == wave_entries[0].dmg_mult`, `result[&"loop_count"] == 0`; no crash.
+  _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd` — injects `_error_reporter` stub; asserts call count ≥ 1 and return dict field values using subscript form `result[&"key"]` (matching AC-041)._
 
-- **AC-029b (INF/NaN overflow guard — formula branch 5)** GIVEN a `WaveScalingCurve` with `loop_hp_scale = 1e200` and `loop_dmg_scale = 1e200` AND `w = loop_after_wave + loop_span + 1` (producing `loop_count = 2`, so `1e200^2 = INF`) AND `_error_reporter` injected as a call-counting stub WHEN the formula is queried THEN: (a) `_error_reporter` is called at least once naming the wave `w`, the overflowed field(s), and the entry index `e`; (b) the return value has `&"hp_mult" == wave_entries[e].hp_mult` (authored baseline, unscaled); (c) `&"dmg_mult" == wave_entries[e].dmg_mult`, unscaled; (d) `&"loop_count"` equals the pre-overflow computed value (preserved for telemetry, not zeroed); (e) no crash or NaN propagates.
+- **AC-029b (INF/NaN overflow guard — formula branch 5)** GIVEN a `WaveScalingCurve` with `loop_hp_scale = 1e200` and `loop_dmg_scale = 1e200` AND `w = loop_after_wave + loop_span + 1` (producing `loop_count = 2`, so `1e200^2 = INF`) AND `_error_reporter` injected as a call-counting stub WHEN the formula is queried THEN: (a) `_error_reporter` is called at least once naming the wave `w`, the overflowed field(s), and the entry index `e`; (b) `result[&"hp_mult"] == wave_entries[e].hp_mult` (authored baseline, unscaled); (c) `result[&"dmg_mult"] == wave_entries[e].dmg_mult`, unscaled; (d) `result[&"loop_count"]` equals the pre-overflow computed value (preserved for telemetry, not zeroed); (e) no crash or NaN propagates. Assert each return dict field using the subscript form `result[&"key"]` (matching AC-041).
   _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd` — injects `_error_reporter` stub; asserts call count ≥ 1 and return dict field values._
 
 ### H.4 API behavior — getters, miss contract, template immutability
@@ -927,8 +939,8 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 - **AC-042 (E.3 — resource_local_to_scene guard)** GIVEN a Resource saved with `resource_local_to_scene = true` is listed in the manifest WHEN validation runs THEN validation fails naming the Resource and field; the Resource is excluded from `_templates`.
   _Unit test: `tests/unit/balance_data_layer/test_edge_cases.gd`_
 
-- **AC-043 (E.3 — UID remap warning)** GIVEN a manifest path whose resolved `resource_path` after load differs from the manifest-listed path WHEN validation runs THEN a UID-remap warning is emitted; boot continues and the Resource is still loaded.
-  _Unit test: `tests/unit/balance_data_layer/test_edge_cases.gd` — mock ResourceLoader fixture._
+- **AC-043 (E.3 — UID remap warning)** GIVEN `_load_resource` injected with a stub that returns a valid `EnemyDefinition` Resource whose `resource_path` property does NOT match the manifest-listed path (simulating a renamed file before `uid_cache.bin` update) AND `_warning_reporter` injected as a call-counting stub WHEN validation runs THEN `_warning_reporter` is called at least once with a message containing the manifest path and the actual `resource_path`; boot continues; the Resource is still included in `_templates`; `is_ready` reaches `true`. (Note: `ResourceLoader` is an engine singleton with no native mock point — the `_load_resource` Callable seam in C.1.4 is the only way to unit-test this path. The seam must be used for all `ResourceLoader.load()` calls inside the validator.)
+  _Unit test: `tests/unit/balance_data_layer/test_edge_cases.gd` — injects `_load_resource` stub returning a Resource with mismatched `resource_path`; asserts `_warning_reporter` call count ≥ 1 and Resource present in `_templates`._
 
 - **AC-044 (E.4 — getter before ready, release path)** GIVEN the game is in LOADING state AND `_is_debug = false` injected (release-behavior path) WHEN a consumer calls `get_item` from a deferred signal THEN: (a) `null` is returned, (b) `_error_reporter` is invoked with a non-empty message, (c) no assert fires (the `if _is_debug:` branch is not entered), (d) `is_ready` remains `false`. The `_is_debug = false` injection is required — without it, a debug CI run triggers `assert(false)` which terminates the GdUnit4 runner (same pattern as AC-002/018/019/031/032).
   _Unit test: `tests/unit/balance_data_layer/test_edge_cases.gd` — injects `_is_debug = false` and `_error_reporter` stub. Asserts reporter call count ≥ 1, return value is `null`._
@@ -980,8 +992,8 @@ All formula tests use a fixture `WaveScalingCurve` with `wave_entries.size() = 1
 - **AC-053 (one-time clamp warning)** GIVEN `loop_after_wave = -1` AND `_warning_reporter` injected as a call-counting stub (reset in `before_each`) WHEN the formula is queried for `w = 50` twice on the **same `BalanceDatabase` instance** using the **same `WaveScalingCurve.id`** and `_warned_no_loop_curves` is NOT reset between the two calls THEN `_warning_reporter` call count == 1 across both calls — the second call does not re-emit the warning (session-scoped suppression, keyed per curve `id` on `BalanceDatabase._warned_no_loop_curves`). Both calls must use the same instance and same curve id; a fresh instance or a different curve id would trivially re-trigger the warning and not test suppression.
   _Unit test: `tests/unit/balance_data_layer/test_wave_loop_formula.gd` — injects `_warning_reporter` stub, calls formula twice on same instance+id, asserts stub call count == 1._
 
-- **AC-054 (unrecognized-class skip)** GIVEN a manifest that includes a path resolving to a `Resource` not belonging to any of the five families WHEN validation runs THEN a warning is logged naming the path and actual class, the path is skipped (no entry in any `_templates` dictionary), remaining Resources load normally, and `is_ready` reaches `true`.
-  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd`_
+- **AC-054 (unrecognized-class skip)** GIVEN a manifest that includes a path resolving to a `Resource` not belonging to any of the five families AND `_warning_reporter` injected as a call-counting stub WHEN validation runs THEN `_warning_reporter` is called at least once with a message naming the path and actual class, the path is skipped (no entry in any `_templates` dictionary), remaining Resources load normally, and `is_ready` reaches `true`.
+  _Unit test: `tests/unit/balance_data_layer/test_validator_rules.gd` — injects `_warning_reporter` stub; asserts call count ≥ 1 and message names the path and class._
 
 - **AC-055 (migration tool `schema_version == 0` handling)** GIVEN a `.tres` whose stored `schema_version == 0` (pre-versioning) WHEN `tools/migrate_balance.gd` runs against it THEN the output `.tres` has `schema_version = CURRENT_SCHEMA` for its family, every field has a value consistent with that family's current schema (defaults applied where fields are missing), and the tool does not silently leave `schema_version = 0` or fail with an unhandled exception.
   _Unit test: `tests/unit/balance_data_layer/test_migrate_balance.gd`_
